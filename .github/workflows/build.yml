@@ -1,0 +1,227 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: ""
+            pdfium: linux-x64
+            orden: 3
+          - name: windows-x64
+            os: windows-latest
+            args: ""
+            pdfium: win-x64
+            orden: 1
+          - name: macos-universal
+            os: macos-latest
+            args: "--target universal-apple-darwin"
+            pdfium: mac-univ
+            orden: 2
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos-universal' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.name }}
+
+      - name: Dependencias de Linux (Tauri y Tesseract)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf \
+            libayatana-appindicator3-dev libsoup-3.0-dev tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng
+
+      - run: npm ci
+
+      - name: pdfium y modelos de idioma
+        run: |
+          python3 scripts/descargar-pdfium.py --objetivo ${{ matrix.pdfium }}
+          python3 scripts/descargar-tessdata.py
+
+      - name: Tesseract para Windows (incluido en el instalador)
+        if: startsWith(matrix.os, 'windows')
+        run: python3 scripts/descargar-tesseract-windows.py
+
+      - name: Compilar y empaquetar
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          args: ${{ matrix.args }}
+
+      # --- Firma Authenticode (Windows) con SignPath -------------------------------
+      # Solo en releases y solo cuando existen el token (secreto SIGNPATH_API_TOKEN) y
+      # las variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG y
+      # SIGNPATH_SIGNING_POLICY_SLUG. Sin ellos se publica sin firmar.
+      - name: Instaladores de Windows por firmar
+        id: sin_firmar
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v') && env.SIGNPATH_API_TOKEN != ''
+        shell: bash
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          mkdir -p sin-firmar
+          find src-tauri/target -path '*/release/bundle/*' -type f \( -name '*-setup.exe' -o -name '*.msi' \) -exec cp {} sin-firmar/ \;
+          ls -la sin-firmar
+          echo "hay=$(ls sin-firmar | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Subir los instaladores como artefacto para SignPath
+        id: artefacto_sin_firmar
+        if: steps.sin_firmar.outputs.hay != '' && steps.sin_firmar.outputs.hay != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sin-firmar-${{ matrix.name }}
+          path: sin-firmar/*
+          retention-days: 3
+
+      - name: Firmar con SignPath
+        id: signpath
+        if: steps.artefacto_sin_firmar.outputs.artifact-id != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.artefacto_sin_firmar.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: firmados
+
+      - name: Sustituir por los firmados y rehacer la firma del actualizador
+        if: steps.signpath.outcome == 'success'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          n=0
+          for firmado in $(find firmados -type f \( -name '*.exe' -o -name '*.msi' \)); do
+            nombre="$(basename "$firmado")"
+            destino="$(find src-tauri/target -path '*/release/bundle/*' -type f -name "$nombre" | head -1)"
+            if [ -z "$destino" ]; then
+              echo "::error::SignPath devolvió $nombre pero no existe en el bundle"
+              exit 1
+            fi
+            cp "$firmado" "$destino"
+            if [ -f "$destino.sig" ]; then
+              npx tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$destino"
+            fi
+            n=$((n + 1))
+          done
+          echo "$n instaladores firmados"
+
+      # Nombre uniforme: IureOCR_<versión>_<orden>-<plataforma>.<ext>. GitHub lista los
+      # assets por nombre, así que el prefijo deja Windows, macOS y Linux en ese orden.
+      - name: Renombrar instaladores
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p dist-release
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \
+               -o -name '*.AppImage.sig' -o -name '*-setup.exe.sig' -o -name '*.msi.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+            -print | while read -r f; do
+            base="$(basename "$f")"
+            case "$base" in
+              *.app.tar.gz.sig) ext="app.tar.gz.sig" ;;
+              *.app.tar.gz)     ext="app.tar.gz" ;;
+              *.AppImage.sig)   ext="AppImage.sig" ;;
+              *-setup.exe.sig)  ext="exe.sig" ;;
+              *.msi.sig)        ext="msi.sig" ;;
+              *)                ext="${base##*.}" ;;
+            esac
+            cp "$f" "dist-release/IureOCR_${VERSION}_${{ matrix.orden }}-${{ matrix.name }}.${ext}"
+          done
+          ls -la dist-release
+
+      - name: Publicar en la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "IureOCR $TAG" --notes-file .github/release-notes.md || true
+          gh release upload "$TAG" dist-release/* --clobber
+
+      - name: Publicar artefactos de compilación
+        uses: actions/upload-artifact@v4
+        with:
+          name: iureocr-${{ matrix.name }}
+          if-no-files-found: ignore
+          path: dist-release/*
+
+  # Manifiesto del actualizador: una entrada por plataforma con las firmas de cada trabajo.
+  manifest:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Generar latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, glob, datetime
+          tag = os.environ["GITHUB_REF_NAME"]; version = tag.lstrip("v")
+          base = f"https://github.com/ellaguno/iureocr/releases/download/{tag}/"
+          # nombre de plataforma en los archivos → claves del actualizador (os-arch)
+          targets = {
+            "linux-x64": ["linux-x86_64"],
+            "windows-x64": ["windows-x86_64"],
+            "macos-universal": ["darwin-aarch64", "darwin-x86_64"],
+          }
+          platforms = {}
+          for sig in glob.glob("artifacts/**/*.sig", recursive=True):
+              name = os.path.basename(sig)
+              asset = name[:-4]
+              for plat, keys in targets.items():
+                  if f"-{plat}." in asset:
+                      # Preferido por plataforma: AppImage en Linux, .exe en Windows, .app.tar.gz en macOS.
+                      pref = {"linux-x64": ".AppImage", "windows-x64": ".exe", "macos-universal": ".app.tar.gz"}[plat]
+                      if not asset.endswith(pref):
+                          continue
+                      for k in keys:
+                          platforms[k] = {"url": base + asset, "signature": open(sig).read().strip()}
+          manifest = {"version": version, "notes": f"IureOCR {version}", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}
+          json.dump(manifest, open("latest.json", "w"), indent=2, ensure_ascii=False)
+          print(json.dumps(manifest, indent=2, ensure_ascii=False))
+          PY
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber

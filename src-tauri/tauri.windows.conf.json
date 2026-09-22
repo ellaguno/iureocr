@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "resources": [
+      "resources/pdfium/*",
+      "resources/tessdata/*",
+      "resources/tesseract/**/*"
+    ]
+  }
+}

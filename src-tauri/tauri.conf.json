@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "IureOCR",
+  "version": "0.1.0",
+  "identifier": "com.iurefficient.iureocr",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "IureOCR",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 600,
+        "dragDropEnabled": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "OCR local con Tesseract y herramientas PDF",
+    "longDescription": "Convierte escaneos e imágenes en PDF con texto buscable usando Tesseract en tu propio equipo, y guarda el resultado en Iurefficient.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["tesseract-ocr", "tesseract-ocr-spa", "tesseract-ocr-eng"],
+        "desktopTemplate": "./linux/app.desktop"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "rpm": {
+        "depends": ["tesseract", "tesseract-langpack-spa", "tesseract-langpack-eng"],
+        "desktopTemplate": "./linux/app.desktop"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    },
+    "windows": {
+      "nsis": {
+        "languages": ["Spanish", "English"],
+        "installMode": "currentUser"
+      }
+    },
+    "resources": [
+      "resources/pdfium/*",
+      "resources/tessdata/*"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwMTc4NjI1QkY2NjQyQ0IKUldUTFFtYS9KWVlYNEw1ZDQ0VEJNK2pQMGQ2UEJTSWJnZEhyOXZnVUYzWFRURUM5S1RJVmdpbGEK",
+      "endpoints": [
+        "https://github.com/ellaguno/iureocr/releases/latest/download/latest.json"
+      ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["iureocr"]
+      }
+    }
+  }
+}
