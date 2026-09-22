@@ -95,17 +95,30 @@ fn check_cancel(cancel: &AtomicBool) -> Result<()> {
 
 /// Rasteriza las páginas de un PDF a JPEG en `dir`. Devuelve las rutas en orden y el
 /// texto que ya tenían las tres primeras páginas (para decidir si se omite).
-/// pdfium sólo se puede enlazar una vez por proceso: se crea a la primera y vive en
-/// el hilo trabajador (ver [`Worker`]) mientras dure la app.
-pub fn bind_pdfium(pdfium_dir: Option<&Path>) -> Result<pdfium_render::prelude::Pdfium> {
+static PDFIUM: std::sync::OnceLock<pdfium_render::prelude::Pdfium> = std::sync::OnceLock::new();
+/// Serializa la inicialización: dos hilos a la vez (OCR y miniaturas) intentarían
+/// enlazar pdfium dos veces y el segundo fallaría con «already initialized».
+static PDFIUM_INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// pdfium sólo se puede enlazar una vez por proceso: se crea a la primera llamada y
+/// se comparte (función `thread_safe`) entre el OCR y las miniaturas.
+pub fn pdfium(pdfium_dir: Option<&Path>) -> Result<&'static pdfium_render::prelude::Pdfium> {
     use pdfium_render::prelude::*;
+    if let Some(p) = PDFIUM.get() {
+        return Ok(p);
+    }
+    let _init = PDFIUM_INIT.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(p) = PDFIUM.get() {
+        return Ok(p);
+    }
     let bindings = match pdfium_dir {
         Some(d) => Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(d))
             .or_else(|_| Pdfium::bind_to_system_library()),
         None => Pdfium::bind_to_system_library(),
     }
     .map_err(|e| anyhow!("No se pudo cargar pdfium (la biblioteca que lee PDF): {e}"))?;
-    Ok(Pdfium::new(bindings))
+    let _ = PDFIUM.set(Pdfium::new(bindings));
+    Ok(PDFIUM.get().expect("pdfium recién inicializado"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -289,7 +302,6 @@ fn run_tesseract(
 pub fn run(
     req: &Request,
     tess: &Tesseract,
-    pdfium: &mut Option<pdfium_render::prelude::Pdfium>,
     pdfium_dir: Option<&Path>,
     progress: Progress,
     cancel: &AtomicBool,
@@ -309,20 +321,16 @@ pub fn run(
     let work = std::env::temp_dir().join(format!("iureocr-{}", req.job_id));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
-    let result = run_in(
-        req, tess, pdfium, pdfium_dir, &work, &stem, progress, cancel,
-    );
+    let result = run_in(req, tess, pdfium_dir, &work, &stem, progress, cancel);
     let _ = std::fs::remove_dir_all(&work);
     let mut out = result?;
     out.elapsed_secs = started.elapsed().as_secs_f64();
     Ok(out)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_in(
     req: &Request,
     tess: &Tesseract,
-    pdfium: &mut Option<pdfium_render::prelude::Pdfium>,
     pdfium_dir: Option<&Path>,
     work: &Path,
     stem: &str,
@@ -330,15 +338,12 @@ fn run_in(
     cancel: &AtomicBool,
 ) -> Result<Outcome> {
     let inputs: Vec<PathBuf> = if is_pdf(&req.input) {
-        if pdfium.is_none() {
-            *pdfium = Some(bind_pdfium(pdfium_dir)?);
-        }
         let (files, existing) = rasterize(
             &req.input,
             work,
             req.dpi,
             req.jpeg_quality,
-            pdfium.as_ref().unwrap(),
+            pdfium(pdfium_dir)?,
             req.force,
             progress,
             cancel,
@@ -433,12 +438,10 @@ impl Worker {
         std::thread::Builder::new()
             .name("iureocr-worker".into())
             .spawn(move || {
-                let mut pdfium = None;
                 for job in rx {
                     let result = run(
                         &job.req,
                         &job.tess,
-                        &mut pdfium,
                         job.pdfium_dir.as_deref(),
                         &*job.progress,
                         &job.cancel,
@@ -516,16 +519,7 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let progress = |stage: &str, cur: usize, total: usize| eprintln!("{stage} {cur}/{total}");
         let pdfium_dir = manifest.join("resources").join("pdfium");
-        let mut pdfium = None;
-        let out = run(
-            &req,
-            &tess,
-            &mut pdfium,
-            Some(&pdfium_dir),
-            &progress,
-            &cancel,
-        )
-        .expect("ocr");
+        let out = run(&req, &tess, Some(&pdfium_dir), &progress, &cancel).expect("ocr");
         eprintln!("{out:?}");
         assert!(
             !out.skipped,
@@ -541,15 +535,7 @@ mod tests {
             job_id: "test2".into(),
             ..req
         };
-        let again = run(
-            &req2,
-            &tess,
-            &mut pdfium,
-            Some(&pdfium_dir),
-            &progress,
-            &cancel,
-        )
-        .expect("ocr 2");
+        let again = run(&req2, &tess, Some(&pdfium_dir), &progress, &cancel).expect("ocr 2");
         assert!(
             again.skipped,
             "el PDF con OCR debería detectarse como «ya tiene texto»"

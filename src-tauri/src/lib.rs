@@ -1,4 +1,5 @@
 mod ocr;
+mod pdf;
 mod settings;
 mod tesseract;
 
@@ -232,6 +233,7 @@ async fn ocr_start(
     }
     .or_else(|| input.parent().map(Path::to_path_buf))
     .unwrap_or_else(|| PathBuf::from("."));
+    log::info!("OCR inicio: {path} (forzar={force})");
     let tess = tesseract::locate(state.resource_dir.as_deref()).map_err(|e| e.to_string())?;
     let pdfium = pdfium_dir(&state);
     let cancel = Arc::new(AtomicBool::new(false));
@@ -281,6 +283,103 @@ async fn ocr_start(
         Err(e) => log::warn!("OCR {}: {e:#}", path),
     }
     result.map_err(|e| format!("{e:#}"))
+}
+
+// ---------------------------------------------------------------------------
+// Páginas: recuento, miniaturas y edición básica
+// ---------------------------------------------------------------------------
+/// Operación de edición ya ligada a sus argumentos; recibe la ruta de salida.
+type PdfOp<'a> = Box<dyn FnOnce(&Path) -> anyhow::Result<usize> + 'a>;
+
+fn is_pdf_path(p: &str) -> bool {
+    p.to_ascii_lowercase().ends_with(".pdf")
+}
+
+#[tauri::command]
+async fn pdf_page_count(state: State<'_, AppState>, path: String) -> Result<usize, String> {
+    if !is_pdf_path(&path) {
+        return Ok(1);
+    }
+    let dir = pdfium_dir(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let pdfium = ocr::pdfium(dir.as_deref())?;
+        pdf::page_count(pdfium, Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+/// Miniaturas (data URL JPEG) de las páginas `indices` (0-based). Para una imagen, una sola.
+#[tauri::command]
+async fn pdf_thumbnails(
+    state: State<'_, AppState>,
+    path: String,
+    indices: Vec<usize>,
+    width: u32,
+) -> Result<Vec<String>, String> {
+    let dir = pdfium_dir(&state);
+    let width = width.clamp(40, 800);
+    log::debug!("miniaturas: {path} páginas {indices:?} a {width}px");
+    tauri::async_runtime::spawn_blocking(move || {
+        if !is_pdf_path(&path) {
+            return pdf::image_thumbnail(Path::new(&path), width).map(|t| vec![t]);
+        }
+        let pdfium = ocr::pdfium(dir.as_deref())?;
+        pdf::thumbnails(pdfium, Path::new(&path), &indices, width)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PdfEditResult {
+    path: String,
+    pages: usize,
+}
+
+/// Edición de páginas: `op` = "delete" | "keep" | "rotate"; `pages` 1-based.
+#[tauri::command]
+async fn pdf_edit_pages(
+    path: String,
+    op: String,
+    pages: Vec<u32>,
+    degrees: Option<i64>,
+) -> Result<PdfEditResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let input = Path::new(&path);
+        let (suffix, run): (&str, PdfOp) = match op.as_str() {
+            "delete" => (
+                " - sin páginas",
+                Box::new(|out| pdf::delete_pages(input, &pages, out)),
+            ),
+            "keep" => (
+                " - páginas",
+                Box::new(|out| pdf::keep_pages(input, &pages, out)),
+            ),
+            "rotate" => (
+                " - rotado",
+                Box::new(|out| pdf::rotate_pages(input, &pages, degrees.unwrap_or(90), out)),
+            ),
+            other => return Err(anyhow::anyhow!("operación desconocida: {other}")),
+        };
+        let output = pdf::sibling_output(input, suffix);
+        let n = run(&output)?;
+        log::info!(
+            "PDF {op} {} → {} ({n} páginas)",
+            input.display(),
+            output.display()
+        );
+        Ok(PdfEditResult {
+            path: output.to_string_lossy().into_owned(),
+            pages: n,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -845,6 +944,9 @@ pub fn run() {
             launch_args,
             ocr_start,
             ocr_cancel,
+            pdf_page_count,
+            pdf_thumbnails,
+            pdf_edit_pages,
             iure_login,
             iure_session_status,
             iure_logout,

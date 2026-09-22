@@ -16,7 +16,8 @@ import {
 import { baseName } from "./format";
 
 export type View = "ocr" | "settings";
-export type JobStatus = "queued" | "render" | "ocr" | "done" | "skipped" | "error" | "cancelled";
+/** `ready`: archivo listo sin pasar por OCR (p. ej. resultado de una edición de páginas). */
+export type JobStatus = "queued" | "render" | "ocr" | "done" | "skipped" | "error" | "cancelled" | "ready";
 
 export interface Job {
   id: string;
@@ -27,6 +28,10 @@ export interface Job {
   current: number;
   total: number;
   force: boolean;
+  /** Páginas del archivo (null hasta contarlas; 1 para imágenes). */
+  pages: number | null;
+  /** Miniaturas por índice de página (data URL), cargadas bajo demanda. */
+  thumbs: Record<number, string>;
   error?: string;
   result?: OcrOutcome;
   /** Subida en curso a Iurefficient. */
@@ -114,8 +119,7 @@ export async function addFiles(paths: string[]): Promise<Job[]> {
       continue;
     }
     if (app.jobs.some((j) => j.path === p && j.status !== "done" && j.status !== "error" && j.status !== "cancelled")) continue;
-    const job: Job = { id: crypto.randomUUID(), path: p, name: baseName(p), sizeBytes: null, status: "queued", current: 0, total: 0, force: false };
-    api.fileSize(p).then((n) => (job.sizeBytes = n)).catch(() => {});
+    const job = newJob(p, "queued");
     app.jobs.push(job);
     added.push(job);
   }
@@ -123,6 +127,42 @@ export async function addFiles(paths: string[]): Promise<Job[]> {
   if (added.length && !app.selectedJobId) app.selectedJobId = added[0].id;
   if (added.length) void startQueue();
   return added;
+}
+
+function newJob(path: string, status: JobStatus): Job {
+  const job: Job = { id: crypto.randomUUID(), path, name: baseName(path), sizeBytes: null, status, current: 0, total: 0, force: false, pages: null, thumbs: {} };
+  api.fileSize(path).then((n) => (job.sizeBytes = n)).catch(() => {});
+  api.pdfPageCount(path).then((n) => (job.pages = n)).then(() => loadThumbs(job, 0, 6)).catch(() => {});
+  return job;
+}
+
+/** Ruta del PDF que representa al trabajo: el resultado del OCR si lo hay, si no el original. */
+export function pdfOf(job: Job): string {
+  return job.result?.pdfPath ?? job.path;
+}
+
+export const THUMB_WIDTH = 160;
+
+/** Carga (si faltan) las miniaturas de las páginas [from, to) del archivo original. */
+export async function loadThumbs(job: Job, from: number, to: number): Promise<void> {
+  const total = job.pages ?? 0;
+  const indices: number[] = [];
+  for (let i = from; i < Math.min(to, total); i++) if (!job.thumbs[i]) indices.push(i);
+  if (!indices.length) return;
+  try {
+    const imgs = await api.pdfThumbnails(job.path, indices, THUMB_WIDTH);
+    indices.forEach((i, k) => (job.thumbs[i] = imgs[k]));
+  } catch (e) {
+    console.warn("miniaturas:", e);
+  }
+}
+
+/** Añade a la lista un archivo ya listo (resultado de una edición de páginas). */
+export function addReadyFile(path: string): Job {
+  const job = newJob(path, "ready");
+  app.jobs.unshift(job);
+  app.selectedJobId = job.id;
+  return job;
 }
 
 export function isActive(job: Job): boolean {
@@ -207,7 +247,7 @@ export function removeJob(id: string) {
 }
 
 export function clearFinished() {
-  app.jobs = app.jobs.filter((j) => j.status === "queued" || isActive(j));
+  app.jobs = app.jobs.filter((j) => j.status === "queued" || isActive(j) || j.status === "ready");
   if (!app.jobs.some((j) => j.id === app.selectedJobId)) app.selectedJobId = app.jobs[0]?.id ?? null;
 }
 
@@ -241,8 +281,9 @@ export function term(key: "case" | "cases" | "client" | "clients"): string {
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
-/** Archivos que se suben de un trabajo terminado: el PDF con texto y el .txt. */
+/** Archivos que se suben: el PDF con texto (y el .txt), o el archivo listo sin OCR. */
 export function filesOf(job: Job, includeTxt: boolean): string[] {
+  if (job.status === "ready") return [job.path];
   const r = job.result;
   if (!r || job.status !== "done") return [];
   const files = [r.pdfPath!];

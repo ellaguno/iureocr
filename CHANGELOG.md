@@ -5,11 +5,32 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
-Previsto: herramientas PDF (unir, dividir, extraer y borrar páginas, rotar, proteger,
-marca de agua, numerar); compresión real de imágenes (v2); rescate de páginas
+Previsto: unir PDF, dividir por rangos, reordenar páginas, proteger con contraseña,
+marca de agua y numerar; compresión real de imágenes (v2); rescate de páginas
 ilegibles con un modelo de visión, primero por el motor de la instancia u OpenRouter
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
+
+## [0.2.0] — 2026-09-22
+
+### Añadido
+
+- **Miniaturas de las páginas** en cada archivo, con la página que se está
+  reconociendo resaltada, y una vista de páginas en cuadrícula («Páginas»).
+- **Edición gráfica de páginas**: en la cuadrícula se marcan páginas y se pueden
+  **quitar**, **conservar sólo esas** o **rotar** 90°. Cada edición escribe un PDF
+  nuevo junto al original (` - sin páginas`, ` - páginas`, ` - rotado`), que aparece
+  en la lista listo para abrir, guardar en Iurefficient o pasar por OCR.
+- Miniatura también para imágenes sueltas.
+
+### Corregido
+
+- «Abrir PDF» fallaba con `plugin opener open_path not allowed`: faltaba el permiso
+  para abrir rutas de archivo.
+
+### Cambiado
+
+- pdfium se comparte entre el OCR y las miniaturas (una sola inicialización por proceso).
 
 ## [0.1.0] — 2026-09-22
 

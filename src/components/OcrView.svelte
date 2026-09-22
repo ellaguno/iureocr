@@ -6,8 +6,10 @@
   import { fmtBytes, fmtSecs } from "../lib/format";
   import Icon from "./Icon.svelte";
   import IurePicker from "./IurePicker.svelte";
+  import PagesView from "./PagesView.svelte";
 
   let picking = $state<Job | null>(null);
+  let pagesOf = $state<Job | null>(null);
   let preview = $state<{ job: Job; text: string } | null>(null);
 
   async function pickFiles() {
@@ -56,13 +58,14 @@
       case "render": return j.total ? `Leyendo páginas ${j.current}/${j.total}` : "Leyendo páginas…";
       case "ocr": return j.total ? `Reconociendo ${j.current}/${j.total}` : "Reconociendo texto…";
       case "done": return "Listo";
+      case "ready": return "Listo (sin OCR)";
       case "skipped": return "Ya tenía texto";
       case "error": return "Error";
       case "cancelled": return "Cancelado";
     }
   }
   function pillClass(j: Job): string {
-    return j.status === "done" ? "success" : j.status === "error" ? "danger" : j.status === "skipped" ? "warn" : isActive(j) ? "accent" : "";
+    return j.status === "done" || j.status === "ready" ? "success" : j.status === "error" ? "danger" : j.status === "skipped" ? "warn" : isActive(j) ? "accent" : "";
   }
   let percent = $derived((j: Job) => (j.total ? Math.round(((j.status === "ocr" ? j.total : 0) + j.current) / (2 * j.total) * 100) : 0));
   let finished = $derived(app.jobs.filter((j) => !isActive(j) && j.status !== "queued").length);
@@ -120,6 +123,17 @@
               <button class="btn icon ghost" title="Quitar de la lista" onclick={() => removeJob(job.id)}><Icon name="trash" size={15} /></button>
             {/if}
           </div>
+          {#if job.pages}
+            <button class="strip" onclick={() => (pagesOf = job)} title="Ver todas las páginas">
+              {#each Array.from({ length: Math.min(job.pages, 6) }, (_, i) => i) as i (i)}
+                <span class="thumb" class:current={isActive(job) && job.total && job.current === i + 1}>
+                  {#if job.thumbs[i]}<img src={job.thumbs[i]} alt="" />{:else}<span class="ph"></span>{/if}
+                </span>
+              {/each}
+              {#if job.pages > 6}<span class="more">+{job.pages - 6}</span>{/if}
+              <span class="strip-label"><Icon name="layers" size={13} /> {job.pages} página{job.pages === 1 ? "" : "s"}{isActive(job) && job.total ? ` · en la ${job.current}` : ""}</span>
+            </button>
+          {/if}
           {#if isActive(job)}
             <div class="progress" class:indeterminate={!job.total}><div style="width: {percent(job)}%"></div></div>
           {/if}
@@ -134,11 +148,27 @@
               <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> Forzar OCR de todas formas</button>
               <button class="btn sm ghost" onclick={() => openFile(job.path)}><Icon name="external" size={14} /> Abrir original</button>
             </div>
+          {:else if job.status === "ready"}
+            <div class="row">
+              <button class="btn sm primary" onclick={() => openFile(job.path)}><Icon name="doc" size={14} /> Abrir PDF</button>
+              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
+              <button class="btn sm" onclick={() => reveal(job.path)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
+              <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> Reconocer texto</button>
+              <span class="grow"></span>
+              {#if job.upload}
+                <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> Subiendo…</span>
+              {:else if job.saved}
+                <span class="pill success"><Icon name="check" size={12} stroke={3} /> En {job.saved.target}</span>
+              {:else}
+                <button class="btn sm" onclick={() => (picking = job)} disabled={!app.settings?.iureDomain}><Icon name="cloud" size={14} /> Guardar en Iurefficient</button>
+              {/if}
+            </div>
           {:else if job.status === "done" && job.result}
             {#if job.result.note}<p class="hint warn-text">{job.result.note}</p>{/if}
             <div class="row">
               <button class="btn sm primary" onclick={() => openFile(job.result!.pdfPath!)}><Icon name="doc" size={14} /> Abrir PDF</button>
               <button class="btn sm" onclick={() => showText(job)}><Icon name="text" size={14} /> Ver texto</button>
+              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
               <button class="btn sm" onclick={() => reveal(job.result!.pdfPath!)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
               <button class="btn sm" onclick={() => editWith(job.result!.pdfPath!)} title={app.onlyoffice?.installed ? "Abrir con OnlyOffice" : "OnlyOffice no está instalado"}><Icon name="edit" size={14} /> Editar con OnlyOffice</button>
               <span class="grow"></span>
@@ -160,6 +190,9 @@
 
 {#if picking}
   <IurePicker job={picking} onclose={() => (picking = null)} />
+{/if}
+{#if pagesOf}
+  <PagesView job={pagesOf} onclose={() => (pagesOf = null)} />
 {/if}
 {#if preview}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (preview = null)}>
@@ -194,6 +227,14 @@
   .err { color: var(--danger); font-size: 13px; user-select: text; }
   .warn-text { color: var(--warn); }
   .spin { display: inline-flex; animation: spin 1s linear infinite; }
+  .strip { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); text-align: left; }
+  .strip:hover { background: var(--surface-3); }
+  .thumb { width: 44px; height: 58px; border-radius: 3px; overflow: hidden; background: #fff; border: 2px solid transparent; flex-shrink: 0; display: block; }
+  .thumb.current { border-color: var(--warn); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb .ph { display: block; width: 100%; height: 100%; background: var(--surface-3); }
+  .more { font-size: 12px; font-weight: 600; color: var(--text-2); padding: 0 4px; }
+  .strip-label { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
   .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 30; }
   .modal { width: min(760px, 92vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
   .head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 8px; }

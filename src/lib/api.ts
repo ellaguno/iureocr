@@ -53,6 +53,11 @@ export interface OcrProgress {
   total: number;
 }
 
+export interface PdfEditResult {
+  path: string;
+  pages: number;
+}
+
 export interface Terminology {
   case: string;
   cases: string;
@@ -148,6 +153,12 @@ export const api = {
   launchArgs: () => invoke<string[]>("launch_args"),
   ocrStart: (jobId: string, path: string, force: boolean) => invoke<OcrOutcome>("ocr_start", { jobId, path, force }),
   ocrCancel: (jobId: string) => invoke<void>("ocr_cancel", { jobId }),
+  pdfPageCount: (path: string) => invoke<number>("pdf_page_count", { path }),
+  /** Miniaturas JPEG (data URL) de las páginas `indices` (desde 0); una imagen devuelve una sola. */
+  pdfThumbnails: (path: string, indices: number[], width: number) => invoke<string[]>("pdf_thumbnails", { path, indices, width }),
+  /** Quitar, conservar o rotar páginas (1-based); escribe un PDF nuevo junto al original. */
+  pdfEditPages: (path: string, op: "delete" | "keep" | "rotate", pages: number[], degrees?: number) =>
+    invoke<PdfEditResult>("pdf_edit_pages", { path, op, pages, degrees: degrees ?? null }),
   iureLogin: (password: string, totpCode?: string, totpToken?: string) =>
     invoke<IureLoginResult>("iure_login", { password, totpCode: totpCode ?? null, totpToken: totpToken ?? null }),
   iureSessionStatus: () => invoke<IureSessionStatus>("iure_session_status"),
