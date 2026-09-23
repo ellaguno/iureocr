@@ -127,6 +127,13 @@
     </div>
     <div class="switchrow">
       <div>
+        <span class="label">Reconocer el texto en cuanto se abre un archivo</span>
+        <p class="hint">Apagado, los archivos se abren para verlos o editar sus páginas y el OCR se lanza con «Reconocer texto».</p>
+      </div>
+      <button class="switch" class:on={s.autoOcr} aria-label="OCR automático" onclick={() => saveSettings({ autoOcr: !s.autoOcr })}></button>
+    </div>
+    <div class="switchrow">
+      <div>
         <span class="label">Omitir los PDF que ya tienen texto</span>
         <p class="hint">Volver a rasterizarlos sólo los haría más pesados. Puedes forzar el OCR por archivo.</p>
       </div>

@@ -30,6 +30,8 @@ export interface Job {
   force: boolean;
   /** Páginas del archivo (null hasta contarlas; 1 para imágenes). */
   pages: number | null;
+  /** Tamaño (ancho, alto) de cada página, para el visor. */
+  pageSizes: [number, number][];
   /** Miniaturas por índice de página (data URL), cargadas bajo demanda. */
   thumbs: Record<number, string>;
   error?: string;
@@ -119,21 +121,51 @@ export async function addFiles(paths: string[]): Promise<Job[]> {
       continue;
     }
     if (app.jobs.some((j) => j.path === p && j.status !== "done" && j.status !== "error" && j.status !== "cancelled")) continue;
-    const job = newJob(p, "queued");
-    app.jobs.push(job);
+    const job = newJob(p, app.settings?.autoOcr ? "queued" : "ready");
     added.push(job);
   }
   if (ignored) toast(`${ignored} archivo(s) ignorado(s): sólo PDF e imágenes`, "info");
   if (added.length && !app.selectedJobId) app.selectedJobId = added[0].id;
-  if (added.length) void startQueue();
+  if (added.length && app.settings?.autoOcr) void startQueue();
   return added;
 }
 
-function newJob(path: string, status: JobStatus): Job {
-  const job: Job = { id: crypto.randomUUID(), path, name: baseName(path), sizeBytes: null, status, current: 0, total: 0, force: false, pages: null, thumbs: {} };
+/**
+ * Crea el trabajo y lo mete en la lista. Devuelve la copia **reactiva** (la que vive
+ * en `app.jobs`): escribir en el objeto original no refresca la interfaz.
+ */
+function newJob(path: string, status: JobStatus, atStart = false): Job {
+  const plain: Job = { id: crypto.randomUUID(), path, name: baseName(path), sizeBytes: null, status, current: 0, total: 0, force: false, pages: null, pageSizes: [], thumbs: {} };
+  if (atStart) app.jobs.unshift(plain);
+  else app.jobs.push(plain);
+  const job = app.jobs.find((j) => j.id === plain.id)!;
   api.fileSize(path).then((n) => (job.sizeBytes = n)).catch(() => {});
-  api.pdfPageCount(path).then((n) => (job.pages = n)).then(() => loadThumbs(job, 0, 6)).catch(() => {});
+  api.pdfPageSizes(path)
+    .then((sizes) => {
+      job.pageSizes = sizes;
+      job.pages = sizes.length;
+    })
+    .then(() => loadThumbs(job, 0, 6))
+    .catch((e) => {
+      job.pages = 0;
+      toast(`${job.name}: ${e}`, "error", 8000);
+    });
   return job;
+}
+
+/** Pide el OCR de un archivo listo (o repite uno terminado). */
+export function requestOcr(id: string, force = false) {
+  const job = app.jobs.find((j) => j.id === id);
+  if (!job || isActive(job)) return;
+  job.status = "queued";
+  job.force = force;
+  job.error = undefined;
+  void startQueue();
+}
+
+/** Archivos listos que aún no han pasado por OCR. */
+export function pendingOcr(): Job[] {
+  return app.jobs.filter((j) => j.status === "ready");
 }
 
 /** Ruta del PDF que representa al trabajo: el resultado del OCR si lo hay, si no el original. */
@@ -159,8 +191,7 @@ export async function loadThumbs(job: Job, from: number, to: number): Promise<vo
 
 /** Añade a la lista un archivo ya listo (resultado de una edición de páginas). */
 export function addReadyFile(path: string): Job {
-  const job = newJob(path, "ready");
-  app.jobs.unshift(job);
+  const job = newJob(path, "ready", true);
   app.selectedJobId = job.id;
   return job;
 }

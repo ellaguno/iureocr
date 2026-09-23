@@ -11,6 +11,33 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+## [0.3.0] — 2026-09-22
+
+### Añadido
+
+- **Visor interno** («Ver», o clic en cualquier miniatura): páginas en scroll
+  continuo, ir a página, zoom (botones, `+`/`-`, Ctrl+rueda) y teclado (RePág, AvPág,
+  Inicio, Fin, Esc). Sólo se dibujan las páginas visibles, a la resolución que ocupan
+  en pantalla, así que abre expedientes de cientos de páginas sin esperar. Resalta la
+  página que se está reconociendo y, al terminar el OCR, muestra el PDF resultante.
+- Doble clic en una página de la cuadrícula la abre en el visor.
+- Ajuste **«Reconocer el texto en cuanto se abre un archivo»** (apagado por
+  defecto) y botón «Reconocer texto de N» para lanzar el OCR de todos los abiertos.
+
+### Cambiado
+
+- Abrir un archivo **ya no lanza el OCR**: queda en la lista «Sin OCR» para verlo,
+  editar sus páginas o subirlo, y el OCR se pide con «Reconocer texto». Quien prefiera
+  el comportamiento anterior lo activa en Ajustes.
+- «Abrir PDF» pasa a «Abrir fuera» (la aplicación del sistema); «Ver» usa el visor.
+- La sección se llama «Documentos».
+
+### Corregido
+
+- «Páginas» se quedaba en «Contando páginas…»: el recuento se escribía en una copia
+  no reactiva del archivo y la interfaz nunca se enteraba. Si el archivo no se puede
+  leer, ahora se avisa en lugar de esperar para siempre.
+
 ## [0.2.0] — 2026-09-22
 
 ### Añadido

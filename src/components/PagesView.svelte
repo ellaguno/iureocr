@@ -4,7 +4,7 @@
   import { addReadyFile, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
 
-  let { job, onclose }: { job: Job; onclose: () => void } = $props();
+  let { job, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number) => void } = $props();
 
   let selected = $state<Set<number>>(new Set());
   let working = $state<string | null>(null);
@@ -86,7 +86,7 @@
     {/if}
     <div class="grid scroll">
       {#each Array.from({ length: total }, (_, i) => i) as i (i)}
-        <button class="page" class:selected={selected.has(i)} class:current={current === i + 1} onclick={() => isPdf && toggle(i)} title="Página {i + 1}">
+        <button class="page" class:selected={selected.has(i)} class:current={current === i + 1} onclick={() => isPdf && toggle(i)} ondblclick={() => onview?.(i)} title="Página {i + 1} · doble clic para verla">
           {#if job.thumbs[i]}
             <img src={job.thumbs[i]} alt="Página {i + 1}" loading="lazy" />
           {:else}
@@ -104,7 +104,8 @@
     <div class="foot-row">
       <span class="hint">{working ? "Escribiendo el PDF nuevo…" : allLoaded ? "Las ediciones crean un PDF nuevo junto al original; el original no se toca." : "Cargando miniaturas…"}</span>
       <span class="grow"></span>
-      <button class="btn sm ghost" onclick={openPdf}><Icon name="external" size={14} /> Abrir PDF</button>
+      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0)}><Icon name="eye" size={14} /> Ver</button>{/if}
+      <button class="btn sm ghost" onclick={openPdf} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
       <button class="btn" onclick={onclose} disabled={!!working}>Cerrar</button>
     </div>
   </div>

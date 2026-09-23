@@ -8,6 +8,7 @@ export interface Settings {
   outputDir: string | null;
   suffix: string;
   skipIfText: boolean;
+  autoOcr: boolean;
   theme: "system" | "light" | "dark";
   checkUpdates: boolean;
   iureDomain: string;
@@ -154,6 +155,8 @@ export const api = {
   ocrStart: (jobId: string, path: string, force: boolean) => invoke<OcrOutcome>("ocr_start", { jobId, path, force }),
   ocrCancel: (jobId: string) => invoke<void>("ocr_cancel", { jobId }),
   pdfPageCount: (path: string) => invoke<number>("pdf_page_count", { path }),
+  /** Tamaño (ancho, alto) de cada página: puntos en PDF, píxeles en imágenes. */
+  pdfPageSizes: (path: string) => invoke<[number, number][]>("pdf_page_sizes", { path }),
   /** Miniaturas JPEG (data URL) de las páginas `indices` (desde 0); una imagen devuelve una sola. */
   pdfThumbnails: (path: string, indices: number[], width: number) => invoke<string[]>("pdf_thumbnails", { path, indices, width }),
   /** Quitar, conservar o rotar páginas (1-based); escribe un PDF nuevo junto al original. */

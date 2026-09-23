@@ -14,6 +14,25 @@ pub fn page_count(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Resul
     Ok(doc.pages().len() as usize)
 }
 
+/// Tamaño (ancho, alto) en puntos de cada página, ya con su rotación aplicada.
+pub fn page_sizes(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Result<Vec<(f32, f32)>> {
+    let doc = pdfium
+        .load_pdf_from_file(path, None)
+        .map_err(|e| anyhow!("No se pudo abrir el PDF: {e}"))?;
+    Ok(doc
+        .pages()
+        .iter()
+        .map(|p| (p.width().value, p.height().value))
+        .collect())
+}
+
+/// Tamaño en píxeles de un archivo de imagen, como una sola página.
+pub fn image_size(path: &Path) -> Result<Vec<(f32, f32)>> {
+    let (w, h) = image::image_dimensions(path)
+        .with_context(|| format!("No se pudo leer la imagen {}", path.display()))?;
+    Ok(vec![(w as f32, h as f32)])
+}
+
 fn jpeg_data_url(rgb: &image::RgbImage, quality: u8) -> Result<String> {
     let mut buf = Vec::new();
     let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
@@ -49,17 +68,30 @@ pub fn thumbnails(
             .as_image()
             .map_err(|e| anyhow!("Página {}: {e}", i + 1))?
             .to_rgb8();
-        out.push(jpeg_data_url(&rgb, 70)?);
+        out.push(jpeg_data_url(&rgb, quality_for(width))?);
     }
     Ok(out)
+}
+
+/// Las miniaturas pequeñas aguantan más compresión; las del visor, no.
+fn quality_for(width: u32) -> u8 {
+    if width > 400 {
+        85
+    } else {
+        70
+    }
 }
 
 /// Miniatura de un archivo de imagen (JPG, PNG, TIFF…).
 pub fn image_thumbnail(path: &Path, width: u32) -> Result<String> {
     let img = image::open(path)
         .with_context(|| format!("No se pudo leer la imagen {}", path.display()))?;
-    let small = img.thumbnail(width, width * 3);
-    jpeg_data_url(&small.to_rgb8(), 70)
+    let small = if img.width() > width {
+        img.thumbnail(width, width * 3)
+    } else {
+        img
+    };
+    jpeg_data_url(&small.to_rgb8(), quality_for(width))
 }
 
 fn load(path: &Path) -> Result<lopdf::Document> {
@@ -191,6 +223,9 @@ mod tests {
         let input = Path::new(&pdf);
         let n = page_count(pdfium, input).expect("páginas");
         assert!(n >= 2);
+        let sizes = page_sizes(pdfium, input).expect("tamaños");
+        assert_eq!(sizes.len(), n);
+        assert!(sizes.iter().all(|(w, h)| *w > 0.0 && *h > 0.0));
         let thumbs = thumbnails(pdfium, input, &[0, 1], 120).expect("miniaturas");
         assert_eq!(thumbs.len(), 2);
         assert!(thumbs[0].starts_with("data:image/jpeg;base64,"));

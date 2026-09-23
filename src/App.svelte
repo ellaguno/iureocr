@@ -30,7 +30,7 @@
   </div>
   {#if app.dragging}
     <div class="drop-overlay">
-      <div class="drop-box"><Icon name="scan" size={36} /><p>Suelta PDF o imágenes para reconocer su texto</p></div>
+      <div class="drop-box"><Icon name="scan" size={36} /><p>Suelta PDF o imágenes para abrirlos</p></div>
     </div>
   {/if}
 {/if}

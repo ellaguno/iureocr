@@ -13,7 +13,7 @@
     openUrl(url).catch((e) => toast(`No se pudo abrir ${url}: ${e}`, "error"));
   }
   const items: { id: View; label: string; icon: string }[] = [
-    { id: "ocr", label: "Reconocer texto", icon: "scan" },
+    { id: "ocr", label: "Documentos", icon: "doc" },
     { id: "settings", label: "Ajustes", icon: "settings" },
   ];
   let pending = $derived(app.jobs.filter((j) => j.status === "queued" || isActive(j)).length);

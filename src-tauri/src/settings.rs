@@ -19,6 +19,8 @@ pub struct Settings {
     pub suffix: String,
     /// No procesar PDF que ya tengan capa de texto (se puede forzar por archivo).
     pub skip_if_text: bool,
+    /// Lanzar el OCR en cuanto se agrega un archivo (si no, queda abierto para verlo o editarlo).
+    pub auto_ocr: bool,
     /// "system" | "light" | "dark"
     pub theme: String,
     pub check_updates: bool,
@@ -40,6 +42,7 @@ impl Default for Settings {
             output_dir: None,
             suffix: " - OCR".into(),
             skip_if_text: true,
+            auto_ocr: false,
             theme: "system".into(),
             check_updates: true,
             iure_domain: String::new(),

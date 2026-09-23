@@ -2,14 +2,16 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { openPath } from "@tauri-apps/plugin-opener";
   import { api } from "../lib/api";
-  import { addFiles, app, cancelJob, clearFinished, isActive, queuedCount, removeJob, retryJob, startQueue, stopQueue, toast, type Job } from "../lib/state.svelte";
+  import { addFiles, app, cancelJob, clearFinished, isActive, pendingOcr, queuedCount, removeJob, requestOcr, retryJob, startQueue, stopQueue, toast, type Job } from "../lib/state.svelte";
   import { fmtBytes, fmtSecs } from "../lib/format";
   import Icon from "./Icon.svelte";
   import IurePicker from "./IurePicker.svelte";
   import PagesView from "./PagesView.svelte";
+  import Viewer from "./Viewer.svelte";
 
   let picking = $state<Job | null>(null);
   let pagesOf = $state<Job | null>(null);
+  let viewing = $state<{ job: Job; page: number } | null>(null);
   let preview = $state<{ job: Job; text: string } | null>(null);
 
   async function pickFiles() {
@@ -58,26 +60,33 @@
       case "render": return j.total ? `Leyendo páginas ${j.current}/${j.total}` : "Leyendo páginas…";
       case "ocr": return j.total ? `Reconociendo ${j.current}/${j.total}` : "Reconociendo texto…";
       case "done": return "Listo";
-      case "ready": return "Listo (sin OCR)";
+      case "ready": return "Sin OCR";
       case "skipped": return "Ya tenía texto";
       case "error": return "Error";
       case "cancelled": return "Cancelado";
     }
   }
   function pillClass(j: Job): string {
-    return j.status === "done" || j.status === "ready" ? "success" : j.status === "error" ? "danger" : j.status === "skipped" ? "warn" : isActive(j) ? "accent" : "";
+    return j.status === "done" ? "success" : j.status === "error" ? "danger" : j.status === "skipped" ? "warn" : isActive(j) ? "accent" : "";
   }
   let percent = $derived((j: Job) => (j.total ? Math.round(((j.status === "ocr" ? j.total : 0) + j.current) / (2 * j.total) * 100) : 0));
+  function recognizeAll() {
+    for (const j of pendingOcr()) requestOcr(j.id);
+  }
+  let pending = $derived(app.jobs.filter((j) => j.status === "ready").length);
   let finished = $derived(app.jobs.filter((j) => !isActive(j) && j.status !== "queued").length);
 </script>
 
 <header class="top">
   <div>
-    <h1>Reconocer texto</h1>
-    <p class="hint">Convierte escaneos e imágenes en PDF con texto buscable, en este equipo. Arrastra archivos o agrégalos.</p>
+    <h1>Documentos</h1>
+    <p class="hint">Abre PDF y fotos de documentos para verlos, editar sus páginas o convertirlos en PDF con texto buscable, en este equipo.</p>
   </div>
   <div class="actions">
-    <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Agregar archivos</button>
+    <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Abrir archivos</button>
+    {#if pending > 1}
+      <button class="btn" onclick={recognizeAll}><Icon name="scan" size={15} /> Reconocer texto de {pending}</button>
+    {/if}
     {#if app.running}
       <button class="btn" onclick={stopQueue}><Icon name="stop" size={15} /> Detener al terminar el actual</button>
     {:else if queuedCount() > 0}
@@ -103,8 +112,8 @@
     <div class="empty">
       <Icon name="scan" size={40} />
       <h2>Sin archivos</h2>
-      <p class="hint">Suelta aquí PDF escaneados o fotos de documentos. El resultado se guarda junto al original con el sufijo «{app.settings?.suffix}».</p>
-      <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Agregar archivos</button>
+      <p class="hint">Suelta aquí PDF o fotos de documentos. {app.settings?.autoOcr ? "El OCR empieza en cuanto llegan" : "Se abren sin tocarlos; el OCR se lanza con «Reconocer texto»"} y su resultado se guarda junto al original con el sufijo «{app.settings?.suffix}».</p>
+      <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Abrir archivos</button>
     </div>
   {:else}
     <div class="jobs">
@@ -124,15 +133,15 @@
             {/if}
           </div>
           {#if job.pages}
-            <button class="strip" onclick={() => (pagesOf = job)} title="Ver todas las páginas">
+            <div class="strip">
               {#each Array.from({ length: Math.min(job.pages, 6) }, (_, i) => i) as i (i)}
-                <span class="thumb" class:current={isActive(job) && job.total && job.current === i + 1}>
+                <button class="thumb" class:current={isActive(job) && job.total && job.current === i + 1} onclick={() => (viewing = { job, page: i })} title="Ver la página {i + 1}">
                   {#if job.thumbs[i]}<img src={job.thumbs[i]} alt="" />{:else}<span class="ph"></span>{/if}
-                </span>
+                </button>
               {/each}
-              {#if job.pages > 6}<span class="more">+{job.pages - 6}</span>{/if}
-              <span class="strip-label"><Icon name="layers" size={13} /> {job.pages} página{job.pages === 1 ? "" : "s"}{isActive(job) && job.total ? ` · en la ${job.current}` : ""}</span>
-            </button>
+              {#if job.pages > 6}<button class="more" onclick={() => (viewing = { job, page: 6 })}>+{job.pages - 6}</button>{/if}
+              <button class="strip-label" onclick={() => (pagesOf = job)} title="Ver todas las páginas en cuadrícula"><Icon name="layers" size={13} /> {job.pages} página{job.pages === 1 ? "" : "s"}{isActive(job) && job.total ? ` · en la ${job.current}` : ""}</button>
+            </div>
           {/if}
           {#if isActive(job)}
             <div class="progress" class:indeterminate={!job.total}><div style="width: {percent(job)}%"></div></div>
@@ -146,14 +155,16 @@
             <p class="hint">{job.result?.note}</p>
             <div class="row">
               <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> Forzar OCR de todas formas</button>
-              <button class="btn sm ghost" onclick={() => openFile(job.path)}><Icon name="external" size={14} /> Abrir original</button>
+              <button class="btn sm ghost" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
+              <button class="btn sm ghost" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
             </div>
           {:else if job.status === "ready"}
             <div class="row">
-              <button class="btn sm primary" onclick={() => openFile(job.path)}><Icon name="doc" size={14} /> Abrir PDF</button>
+              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
+              <button class="btn sm" onclick={() => requestOcr(job.id)}><Icon name="scan" size={14} /> Reconocer texto</button>
               <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
-              <button class="btn sm" onclick={() => reveal(job.path)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
-              <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> Reconocer texto</button>
+              <button class="btn sm ghost" onclick={() => openFile(job.path)} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
+              <button class="btn sm ghost" onclick={() => reveal(job.path)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
               <span class="grow"></span>
               {#if job.upload}
                 <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> Subiendo…</span>
@@ -166,7 +177,8 @@
           {:else if job.status === "done" && job.result}
             {#if job.result.note}<p class="hint warn-text">{job.result.note}</p>{/if}
             <div class="row">
-              <button class="btn sm primary" onclick={() => openFile(job.result!.pdfPath!)}><Icon name="doc" size={14} /> Abrir PDF</button>
+              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
+              <button class="btn sm ghost" onclick={() => openFile(job.result!.pdfPath!)} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
               <button class="btn sm" onclick={() => showText(job)}><Icon name="text" size={14} /> Ver texto</button>
               <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
               <button class="btn sm" onclick={() => reveal(job.result!.pdfPath!)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
@@ -191,8 +203,11 @@
 {#if picking}
   <IurePicker job={picking} onclose={() => (picking = null)} />
 {/if}
+{#if viewing}
+  <Viewer job={viewing.job} start={viewing.page} onclose={() => (viewing = null)} onpages={() => { pagesOf = viewing!.job; viewing = null; }} />
+{/if}
 {#if pagesOf}
-  <PagesView job={pagesOf} onclose={() => (pagesOf = null)} />
+  <PagesView job={pagesOf} onclose={() => (pagesOf = null)} onview={(page) => { viewing = { job: pagesOf!, page }; pagesOf = null; }} />
 {/if}
 {#if preview}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (preview = null)}>
@@ -228,12 +243,13 @@
   .warn-text { color: var(--warn); }
   .spin { display: inline-flex; animation: spin 1s linear infinite; }
   .strip { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); text-align: left; }
-  .strip:hover { background: var(--surface-3); }
-  .thumb { width: 44px; height: 58px; border-radius: 3px; overflow: hidden; background: #fff; border: 2px solid transparent; flex-shrink: 0; display: block; }
+  .thumb { width: 44px; height: 58px; border-radius: 3px; overflow: hidden; background: #fff; border: 2px solid transparent; flex-shrink: 0; display: block; padding: 0; cursor: zoom-in; }
+  .thumb:hover { border-color: var(--accent); }
   .thumb.current { border-color: var(--warn); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .thumb .ph { display: block; width: 100%; height: 100%; background: var(--surface-3); }
   .more { font-size: 12px; font-weight: 600; color: var(--text-2); padding: 0 4px; }
+  .strip-label:hover { color: var(--accent); }
   .strip-label { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
   .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 30; }
   .modal { width: min(760px, 92vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }

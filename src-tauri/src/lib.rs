@@ -310,6 +310,22 @@ async fn pdf_page_count(state: State<'_, AppState>, path: String) -> Result<usiz
     .map_err(|e| format!("{e:#}"))
 }
 
+/// Tamaño (ancho, alto) de cada página: puntos en un PDF, píxeles en una imagen.
+#[tauri::command]
+async fn pdf_page_sizes(state: State<'_, AppState>, path: String) -> Result<Vec<(f32, f32)>, String> {
+    let dir = pdfium_dir(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        if !is_pdf_path(&path) {
+            return pdf::image_size(Path::new(&path));
+        }
+        let pdfium = ocr::pdfium(dir.as_deref())?;
+        pdf::page_sizes(pdfium, Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
 /// Miniaturas (data URL JPEG) de las páginas `indices` (0-based). Para una imagen, una sola.
 #[tauri::command]
 async fn pdf_thumbnails(
@@ -319,7 +335,7 @@ async fn pdf_thumbnails(
     width: u32,
 ) -> Result<Vec<String>, String> {
     let dir = pdfium_dir(&state);
-    let width = width.clamp(40, 800);
+    let width = width.clamp(40, 2400);
     log::debug!("miniaturas: {path} páginas {indices:?} a {width}px");
     tauri::async_runtime::spawn_blocking(move || {
         if !is_pdf_path(&path) {
@@ -945,6 +961,7 @@ pub fn run() {
             ocr_start,
             ocr_cancel,
             pdf_page_count,
+            pdf_page_sizes,
             pdf_thumbnails,
             pdf_edit_pages,
             iure_login,
