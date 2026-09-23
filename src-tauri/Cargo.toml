@@ -1,6 +1,6 @@
 [package]
 name = "iureocr"
-version = "0.3.1"
+version = "0.3.2"
 description = "OCR local con Tesseract y herramientas PDF conectadas a Iurefficient"
 authors = ["Iurefficient"]
 edition = "2021"
