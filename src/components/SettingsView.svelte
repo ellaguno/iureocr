@@ -216,15 +216,17 @@
 
   <section class="card">
     <h2><Icon name="apps" size={17} /> Apps de Iurefficient</h2>
-    <p class="hint">Las otras herramientas de escritorio de Iurefficient en este equipo.</p>
+    <p class="hint">Las herramientas de escritorio de Iurefficient trabajan juntas y comparten la sesión en el llavero del sistema.</p>
     <div class="apps">
       {#each app.apps ?? [] as a (a.id)}
-        <div class="app-row">
+        <div class="app-row" class:me={a.id === "ocr"}>
           <div class="app-info">
             <strong>{a.name}</strong>
             <p class="hint">{a.description}</p>
           </div>
-          {#if a.installed}
+          {#if a.id === "ocr"}
+            <span class="pill success">esta app{app.sys?.version ? ` · ${app.sys.version}` : ""}</span>
+          {:else if a.installed}
             <button class="btn sm" onclick={() => api.launchApp(a.id).catch((e) => toast(String(e), "error"))}><Icon name="external" size={14} /> Abrir</button>
           {:else}
             <button class="btn sm primary" onclick={() => openUrl(a.downloadUrl)}><Icon name="download" size={14} /> Descargar{a.latestVersion ? ` ${a.latestVersion}` : ""}</button>
@@ -297,6 +299,7 @@
   .apps { display: flex; flex-direction: column; gap: 8px; }
   .app-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
   .app-info { flex: 1; min-width: 0; }
+  .app-row.me strong { color: var(--accent); }
   .sys { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
   .sys code { font-family: var(--mono); font-size: 12px; user-select: text; }
   .spin { display: inline-flex; animation: spin 1s linear infinite; }

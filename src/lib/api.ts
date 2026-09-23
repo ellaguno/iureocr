@@ -121,7 +121,7 @@ export interface IureUploadResult {
   fileNames: string[];
 }
 
-export type AppId = "transcribe" | "editor" | "dav";
+export type AppId = "transcribe" | "editor" | "dav" | "ocr";
 
 export interface AppStatus {
   id: AppId;

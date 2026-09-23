@@ -1,6 +1,6 @@
 [package]
 name = "iureocr"
-version = "0.3.0"
+version = "0.3.1"
 description = "OCR local con Tesseract y herramientas PDF conectadas a Iurefficient"
 authors = ["Iurefficient"]
 edition = "2021"
@@ -40,7 +40,7 @@ image = "0.25"
 # Manipulación de páginas (quitar, conservar, rotar) sin dependencias nativas.
 lopdf = "0.45"
 base64 = "0.22"
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.5.0" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.5.2" }
 
 [profile.release]
 codegen-units = 1
