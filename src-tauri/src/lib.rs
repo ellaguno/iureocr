@@ -312,7 +312,10 @@ async fn pdf_page_count(state: State<'_, AppState>, path: String) -> Result<usiz
 
 /// Tamaño (ancho, alto) de cada página: puntos en un PDF, píxeles en una imagen.
 #[tauri::command]
-async fn pdf_page_sizes(state: State<'_, AppState>, path: String) -> Result<Vec<(f32, f32)>, String> {
+async fn pdf_page_sizes(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<(f32, f32)>, String> {
     let dir = pdfium_dir(&state);
     tauri::async_runtime::spawn_blocking(move || {
         if !is_pdf_path(&path) {
@@ -356,7 +359,8 @@ struct PdfEditResult {
     pages: usize,
 }
 
-/// Edición de páginas: `op` = "delete" | "keep" | "rotate"; `pages` 1-based.
+/// Edición de páginas: `op` = "delete" | "keep" | "rotate" | "reorder"; `pages` 1-based
+/// (en "reorder", todas las páginas en el orden nuevo).
 #[tauri::command]
 async fn pdf_edit_pages(
     path: String,
@@ -378,6 +382,10 @@ async fn pdf_edit_pages(
             "rotate" => (
                 " - rotado",
                 Box::new(|out| pdf::rotate_pages(input, &pages, degrees.unwrap_or(90), out)),
+            ),
+            "reorder" => (
+                " - reordenado",
+                Box::new(|out| pdf::reorder_pages(input, &pages, out)),
             ),
             other => return Err(anyhow::anyhow!("operación desconocida: {other}")),
         };

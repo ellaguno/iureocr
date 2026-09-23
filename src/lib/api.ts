@@ -160,7 +160,7 @@ export const api = {
   /** Miniaturas JPEG (data URL) de las páginas `indices` (desde 0); una imagen devuelve una sola. */
   pdfThumbnails: (path: string, indices: number[], width: number) => invoke<string[]>("pdf_thumbnails", { path, indices, width }),
   /** Quitar, conservar o rotar páginas (1-based); escribe un PDF nuevo junto al original. */
-  pdfEditPages: (path: string, op: "delete" | "keep" | "rotate", pages: number[], degrees?: number) =>
+  pdfEditPages: (path: string, op: "delete" | "keep" | "rotate" | "reorder", pages: number[], degrees?: number) =>
     invoke<PdfEditResult>("pdf_edit_pages", { path, op, pages, degrees: degrees ?? null }),
   iureLogin: (password: string, totpCode?: string, totpToken?: string) =>
     invoke<IureLoginResult>("iure_login", { password, totpCode: totpCode ?? null, totpToken: totpToken ?? null }),

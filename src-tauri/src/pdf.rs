@@ -206,6 +206,82 @@ pub fn rotate_pages(input: &Path, pages: &[u32], degrees: i64, output: &Path) ->
     Ok(done)
 }
 
+/// Atributos que una página puede heredar de sus nodos `Pages` antecesores.
+const INHERITABLE: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+
+/// Reordena las páginas: `order` es la lista completa de páginas (1-based) en el orden
+/// nuevo. El árbol de páginas se aplana en un solo nodo `Pages`; antes se copian a cada
+/// página los atributos que heredaba, para que no cambie su aspecto.
+pub fn reorder_pages(input: &Path, order: &[u32], output: &Path) -> Result<usize> {
+    use lopdf::{Dictionary, Object};
+    let mut doc = load(input)?;
+    let ids = doc.get_pages();
+    let total = ids.len();
+    let mut seen = std::collections::BTreeSet::new();
+    if order.len() != total || !order.iter().all(|p| ids.contains_key(p) && seen.insert(*p)) {
+        return Err(anyhow!("El orden debe incluir cada página una sola vez"));
+    }
+    if order.iter().enumerate().all(|(i, p)| *p as usize == i + 1) {
+        return Err(anyhow!("Las páginas ya están en ese orden"));
+    }
+    let root_pages = doc
+        .catalog()
+        .and_then(|c| c.get(b"Pages"))
+        .and_then(Object::as_reference)
+        .map_err(|e| anyhow!("PDF sin árbol de páginas: {e}"))?;
+
+    for &id in ids.values() {
+        // Sube por los padres y copia lo que la página no define por sí misma.
+        let mut inherited = Dictionary::new();
+        let mut parent = doc
+            .get_dictionary(id)
+            .ok()
+            .and_then(|d| d.get(b"Parent").ok())
+            .and_then(|o| o.as_reference().ok());
+        let mut guard = 0;
+        while let Some(pid) = parent {
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+            let Ok(pd) = doc.get_dictionary(pid) else {
+                break;
+            };
+            for key in INHERITABLE {
+                if !inherited.has(key) {
+                    if let Ok(v) = pd.get(key) {
+                        inherited.set(key.to_vec(), v.clone());
+                    }
+                }
+            }
+            parent = pd.get(b"Parent").ok().and_then(|o| o.as_reference().ok());
+        }
+        let page = doc
+            .get_object_mut(id)
+            .and_then(|o| o.as_dict_mut())
+            .map_err(|e| anyhow!("Página: {e}"))?;
+        for (k, v) in inherited.iter() {
+            if !page.has(k) {
+                page.set(k.clone(), v.clone());
+            }
+        }
+        page.set("Parent", Object::Reference(root_pages));
+    }
+
+    let kids: Vec<Object> = order.iter().map(|p| Object::Reference(ids[p])).collect();
+    let pages = doc
+        .get_object_mut(root_pages)
+        .and_then(|o| o.as_dict_mut())
+        .map_err(|e| anyhow!("Árbol de páginas: {e}"))?;
+    pages.set("Kids", Object::Array(kids));
+    pages.set("Count", Object::Integer(total as i64));
+    for key in INHERITABLE {
+        pages.remove(key);
+    }
+    finish(doc, output)?;
+    Ok(total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +315,14 @@ mod tests {
         let solo2 = out.join("solo-pagina-2.pdf");
         assert_eq!(keep_pages(input, &[2], &solo2).expect("conservar"), 1);
         assert_eq!(page_count(pdfium, &solo2).unwrap(), 1);
+        let mut order: Vec<u32> = (1..=n as u32).rev().collect();
+        let reord = out.join("reordenado.pdf");
+        assert_eq!(reorder_pages(input, &order, &reord).expect("reordenar"), n);
+        let a = thumbnails(pdfium, input, &[0], 60).unwrap();
+        let b = thumbnails(pdfium, &reord, &[n - 1], 60).unwrap();
+        assert_eq!(a, b, "la primera página debe quedar al final");
+        order.push(1);
+        assert!(reorder_pages(input, &order, &out.join("y.pdf")).is_err());
         let rot = out.join("rotado.pdf");
         assert_eq!(rotate_pages(input, &[1], 90, &rot).expect("rotar"), 1);
         assert_eq!(page_count(pdfium, &rot).unwrap(), n);
@@ -248,5 +332,36 @@ mod tests {
             &out.join("x.pdf")
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod hilos {
+    use super::*;
+
+    /// `IUREOCR_TEST_PDF=… cargo test -- --ignored`: miniaturas y tamaños pedidos desde
+    /// varios hilos a la vez, como hacen la lista, la cuadrícula y el visor.
+    #[test]
+    #[ignore]
+    fn miniaturas_en_hilos() {
+        let pdf = std::env::var("IUREOCR_TEST_PDF").unwrap();
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pdfium = crate::ocr::pdfium(Some(&manifest.join("resources").join("pdfium"))).unwrap();
+        let n = page_count(pdfium, Path::new(&pdf)).unwrap();
+        let hs: Vec<_> = (0..4)
+            .map(|t| {
+                let pdf = pdf.clone();
+                std::thread::spawn(move || {
+                    for r in 0..3 {
+                        let idx: Vec<usize> = (0..n).filter(|i| (i + t + r) % 2 == 0).collect();
+                        thumbnails(pdfium, Path::new(&pdf), &idx, 160).unwrap();
+                        page_sizes(pdfium, Path::new(&pdf)).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().unwrap();
+        }
     }
 }

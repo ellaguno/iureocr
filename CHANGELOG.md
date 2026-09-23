@@ -5,7 +5,7 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
-Previsto: unir PDF, dividir por rangos, reordenar páginas, proteger con contraseña,
+Previsto: unir PDF, dividir por rangos, proteger con contraseña,
 marca de agua y numerar; compresión real de imágenes (v2); rescate de páginas
 ilegibles con un modelo de visión, primero por el motor de la instancia u OpenRouter
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
@@ -20,6 +20,10 @@ incluido también en macOS.
   Inicio, Fin, Esc). Sólo se dibujan las páginas visibles, a la resolución que ocupan
   en pantalla, así que abre expedientes de cientos de páginas sin esperar. Resalta la
   página que se está reconociendo y, al terminar el OCR, muestra el PDF resultante.
+- **Reordenar páginas** en la cuadrícula: arrastrando miniaturas (si la página
+  arrastrada está seleccionada, se mueven todas las seleccionadas), con «Al principio»,
+  «Al final» y «Orden inverso». «Guardar orden» escribe ` - reordenado.pdf` junto al
+  original; las páginas conservan los atributos que heredaban del árbol de páginas.
 - Doble clic en una página de la cuadrícula la abre en el visor.
 - Ajuste **«Reconocer el texto en cuanto se abre un archivo»** (apagado por
   defecto) y botón «Reconocer texto de N» para lanzar el OCR de todos los abiertos.
