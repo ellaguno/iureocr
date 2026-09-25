@@ -37,7 +37,7 @@
 <Toasts />
 
 <style>
-  .shell { display: grid; grid-template-columns: 224px 1fr; height: 100vh; }
+  .shell { display: grid; grid-template-columns: auto 1fr; height: 100vh; }
   main { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
   .boot { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); }
   .boot :global(svg) { animation: spin 1.2s linear infinite; }

@@ -11,6 +11,13 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+## [0.3.3] — 2026-09-25
+
+### Añadido
+
+- La barra lateral se puede colapsar (sólo iconos) y se colapsa sola con la
+  ventana de 1000 px o menos; en ventanas anchas se recuerda la preferencia.
+
 ## [0.3.0] — 2026-09-22
 
 ### Añadido

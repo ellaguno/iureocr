@@ -35,6 +35,7 @@
     moon: "M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z",
     monitor: "M2 4h20v12H2zM8 20h8M12 16v4",
     chevron: "m6 9 6 6 6-6",
+    panel: "M3 5h18v14H3zM9 5v14",
     left: "m15 18-6-6 6-6",
     right: "m9 18 6-6-6-6",
     minus: "M5 12h14",
