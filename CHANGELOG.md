@@ -11,6 +11,24 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+## [0.4.0] — 2026-09-25
+
+### Añadido
+
+- **Interfaz en inglés y español.** Arranca en inglés, o en español si el
+  sistema operativo está en español; se puede elegir en Ajustes → Apariencia
+  (Automático, English, Español) y cambia al momento. El idioma del OCR es
+  independiente y no cambia.
+- El instalador de Windows sigue el idioma del sistema.
+
+### Cambiado
+
+- Los sufijos de los PDF editados siguen el idioma de la interfaz
+  (« - rotated» / « - rotado», « - pages removed» / « - sin páginas», …).
+- README en inglés; la versión en español queda en `README.es.md`.
+- Conector iurefficient-connect 0.6.0: los mensajes de la cuenta de
+  Iurefficient también salen en el idioma elegido.
+
 ## [0.3.3] — 2026-09-25
 
 ### Añadido

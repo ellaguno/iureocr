@@ -10,6 +10,8 @@ export interface Settings {
   skipIfText: boolean;
   autoOcr: boolean;
   theme: "system" | "light" | "dark";
+  /** Idioma de la interfaz: "auto" = el del sistema. */
+  uiLanguage: "auto" | "en" | "es";
   checkUpdates: boolean;
   iureDomain: string;
   iureEmail: string;
@@ -147,6 +149,8 @@ export interface UpdateNotice {
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<Settings>("set_settings", { settings }),
+  /** Idioma de la interfaz ya resuelto (con "auto", el del sistema). */
+  uiLanguage: () => invoke<"en" | "es">("ui_language"),
   systemInfo: () => invoke<SystemInfo>("system_info"),
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   readTextFile: (path: string, maxChars?: number) => invoke<string>("read_text_file", { path, maxChars: maxChars ?? null }),

@@ -23,6 +23,8 @@ pub struct Settings {
     pub auto_ocr: bool,
     /// "system" | "light" | "dark"
     pub theme: String,
+    /// Idioma de la interfaz: "auto" (el del sistema) | "en" | "es".
+    pub ui_language: String,
     pub check_updates: bool,
     /// Cuenta de Iurefficient (compartida con las otras apps vía llavero y cuenta activa).
     pub iure_domain: String,
@@ -44,6 +46,7 @@ impl Default for Settings {
             skip_if_text: true,
             auto_ocr: false,
             theme: "system".into(),
+            ui_language: "auto".into(),
             check_updates: true,
             iure_domain: String::new(),
             iure_email: String::new(),
@@ -77,5 +80,23 @@ impl Settings {
         }
         std::fs::write(path, serde_json::to_string_pretty(self)?)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ajustes_antiguos_sin_idioma_de_interfaz() {
+        let dir = std::env::temp_dir().join("iureocr-settings-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("settings.json");
+        std::fs::write(&path, r#"{"languages":"spa","theme":"dark"}"#).unwrap();
+        let s = Settings::load(&path);
+        assert_eq!(s.ui_language, "auto");
+        assert_eq!(s.languages, "spa");
+        assert_eq!(s.theme, "dark");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

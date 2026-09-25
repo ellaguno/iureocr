@@ -3,8 +3,9 @@ mod pdf;
 mod settings;
 mod tesseract;
 
+use iurefficient_connect::tr;
 use iurefficient_connect::{
-    api,
+    api, lang,
     rest::{Login, Session, SessionExport},
     secrets,
     webdav::{self, WebDav},
@@ -108,9 +109,19 @@ fn set_settings(state: State<'_, AppState>, settings: Settings) -> Result<Settin
             s.iure_app_password.clear();
         }
     }
+    if s.ui_language.trim().is_empty() {
+        s.ui_language = "auto".into();
+    }
     s.save(&state.settings_path).map_err(|e| e.to_string())?;
+    lang::set(lang::resolve(&s.ui_language));
     *state.settings.lock().unwrap() = s.clone();
     Ok(s)
+}
+
+/// Idioma de la interfaz ya resuelto ("en" | "es"): con "auto", el del sistema.
+#[tauri::command]
+fn ui_language() -> &'static str {
+    lang::current().code()
 }
 
 #[derive(Serialize)]
@@ -177,7 +188,8 @@ fn reveal_path(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn read_text_file(path: String, max_chars: Option<usize>) -> Result<String, String> {
-    let t = std::fs::read_to_string(&path).map_err(|e| format!("No se pudo leer {path}: {e}"))?;
+    let t = std::fs::read_to_string(&path)
+        .map_err(|e| tr!("Could not read {path}: {e}", "No se pudo leer {path}: {e}"))?;
     Ok(match max_chars {
         Some(n) if t.chars().count() > n => t.chars().take(n).collect::<String>() + "\n…",
         _ => t,
@@ -372,22 +384,27 @@ async fn pdf_edit_pages(
         let input = Path::new(&path);
         let (suffix, run): (&str, PdfOp) = match op.as_str() {
             "delete" => (
-                " - sin páginas",
+                lang::pick(" - pages removed", " - sin páginas"),
                 Box::new(|out| pdf::delete_pages(input, &pages, out)),
             ),
             "keep" => (
-                " - páginas",
+                lang::pick(" - pages", " - páginas"),
                 Box::new(|out| pdf::keep_pages(input, &pages, out)),
             ),
             "rotate" => (
-                " - rotado",
+                lang::pick(" - rotated", " - rotado"),
                 Box::new(|out| pdf::rotate_pages(input, &pages, degrees.unwrap_or(90), out)),
             ),
             "reorder" => (
-                " - reordenado",
+                lang::pick(" - reordered", " - reordenado"),
                 Box::new(|out| pdf::reorder_pages(input, &pages, out)),
             ),
-            other => return Err(anyhow::anyhow!("operación desconocida: {other}")),
+            other => {
+                return Err(anyhow::anyhow!(tr!(
+                    "unknown operation: {other}",
+                    "operación desconocida: {other}"
+                )))
+            }
         };
         let output = pdf::sibling_output(input, suffix);
         let n = run(&output)?;
@@ -433,9 +450,10 @@ fn iure_webdav(state: &AppState) -> Result<WebDav, String> {
         _ => s.iure_app_password.clone(),
     };
     if password.trim().is_empty() {
-        return Err(
-            "No hay contraseña de aplicación WebDAV: inicia sesión o escríbela en Ajustes".into(),
-        );
+        return Err(tr!(
+            "No WebDAV app password: sign in or enter one in Settings",
+            "No hay contraseña de aplicación WebDAV: inicia sesión o escríbela en Ajustes"
+        ));
     }
     WebDav::new(acc, &password, &iure_user_agent()).map_err(|e| e.to_string())
 }
@@ -455,7 +473,12 @@ async fn iure_session(state: &AppState) -> Result<Arc<Session>, String> {
         .ok()
         .flatten()
         .and_then(|j| serde_json::from_str::<SessionExport>(&j).ok())
-        .ok_or_else(|| "Inicia sesión en Iurefficient desde Ajustes".to_string())?;
+        .ok_or_else(|| {
+            tr!(
+                "Sign in to Iurefficient from Settings",
+                "Inicia sesión en Iurefficient desde Ajustes"
+            )
+        })?;
     let sess = Session::new(acc.clone(), &iure_user_agent()).map_err(|e| e.to_string())?;
     sess.import(&saved).await.map_err(|e| format!("{e:#}"))?;
     persist_session(&acc, &sess);
@@ -586,7 +609,7 @@ fn hostname_label() -> String {
                 .map(|h| h.trim().to_string())
         })
         .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| "este equipo".into())
+        .unwrap_or_else(|| tr!("this computer", "este equipo"))
 }
 
 /// Garantiza una contraseña de aplicación WebDAV en el llavero (la crea con la sesión).
@@ -602,10 +625,13 @@ async fn iure_ensure_webdav_password(state: State<'_, AppState>) -> Result<bool,
         return Ok(false);
     }
     let sess = iure_session(&state).await?;
-    let created =
-        api::create_webdav_token(&sess, &format!("{APP_NAME} en {}", hostname_label()), None)
-            .await
-            .map_err(|e| format!("{e:#}"))?;
+    let created = api::create_webdav_token(
+        &sess,
+        &tr!("{APP_NAME} on {}", "{APP_NAME} en {}", hostname_label()),
+        None,
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))?;
     if secrets::guardar(&acc, secrets::Kind::WebDav, &created.secret).is_err() {
         let mut s = state.settings.lock().unwrap();
         s.iure_app_password = created.secret;
@@ -702,7 +728,9 @@ async fn iure_upload(
             names.push(file_name);
         }
         return Ok(IureUploadResult {
-            target: request.case_title.unwrap_or_else(|| "sin proyecto".into()),
+            target: request
+                .case_title
+                .unwrap_or_else(|| tr!("no project", "sin proyecto")),
             web_url: sess.account().web_url(),
             file_names: names,
         });
@@ -749,7 +777,7 @@ async fn iure_upload(
     }
     Ok(IureUploadResult {
         target: if folder.is_empty() {
-            "la raíz".into()
+            tr!("the root folder", "la raíz")
         } else {
             folder
         },
@@ -784,7 +812,7 @@ async fn apps_status(with_network: bool) -> Vec<iurefficient_connect::apps::AppS
 #[tauri::command]
 fn launch_app(app: String) -> Result<(), String> {
     let id = iurefficient_connect::apps::AppId::parse(&app)
-        .ok_or_else(|| format!("app desconocida: {app}"))?;
+        .ok_or_else(|| tr!("unknown app: {app}", "app desconocida: {app}"))?;
     iurefficient_connect::apps::launch(id, &[]).map_err(|e| format!("{e:#}"))
 }
 
@@ -836,13 +864,21 @@ fn onlyoffice_status() -> OnlyOfficeStatus {
     OnlyOfficeStatus {
         installed: path.is_some(),
         path: path.map(|p| p.to_string_lossy().into_owned()),
-        download_url: "https://www.onlyoffice.com/es/download-desktop.aspx",
+        download_url: lang::pick(
+            "https://www.onlyoffice.com/download-desktop.aspx",
+            "https://www.onlyoffice.com/es/download-desktop.aspx",
+        ),
     }
 }
 
 #[tauri::command]
 fn open_with_onlyoffice(path: String) -> Result<(), String> {
-    let exe = onlyoffice_path().ok_or("OnlyOffice no está instalado")?;
+    let exe = onlyoffice_path().ok_or_else(|| {
+        tr!(
+            "OnlyOffice is not installed",
+            "OnlyOffice no está instalado"
+        )
+    })?;
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -925,6 +961,7 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let settings_path = config_dir.join("settings.json");
             let mut settings = Settings::load(&settings_path);
+            lang::set(lang::resolve(&settings.ui_language));
             // Sin cuenta configurada: la que dejó otra app de Iurefficient en este equipo.
             if settings.iure_domain.trim().is_empty() || settings.iure_email.trim().is_empty() {
                 if let Some(a) = iurefficient_connect::account::active() {
@@ -961,6 +998,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             set_settings,
+            ui_language,
             system_info,
             reveal_path,
             read_text_file,

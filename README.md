@@ -1,112 +1,114 @@
+[Leer en español](README.es.md)
+
 # IureOCR
 
-Reconoce el texto de escaneos y fotos de documentos **en tu propio equipo** y deja un
-PDF con texto buscable, listo para subir a Iurefficient. Es la cuarta app de
-escritorio de [Iurefficient](https://iurefficient.com), junto a IureTranscribe,
-IureEditor e IureDav, y comparte con ellas la cuenta, el llavero y la sesión.
+Recognizes the text in scans and photos of documents **on your own computer** and
+produces a PDF with searchable text, ready to upload to Iurefficient. It is the fourth
+desktop app from [Iurefficient](https://iurefficient.com), alongside IureTranscribe,
+IureEditor and IureDav, and shares the account, keychain and session with them.
 
-## Qué hace
+## What it does
 
-- **OCR local con Tesseract** en español e inglés (más idiomas si tu Tesseract los
-  tiene). Nada sale del equipo: ni el documento ni el texto.
-- Acepta **PDF escaneados** e **imágenes** (JPG, PNG, TIFF, BMP, WEBP). El resultado
-  es un PDF con la imagen original y, encima, una capa de texto invisible: se puede
-  buscar, copiar y el servidor de Iurefficient lo indexa sin volver a procesarlo.
-  Además deja un `.txt` con el texto plano.
-- **Omite los PDF que ya tienen texto** (mismo criterio que el servidor: menos de
-  100 caracteres en las tres primeras páginas = hay que reconocer). Se puede forzar.
-- **Guardar en Iurefficient**: en un proyecto (API REST) o en cualquier carpeta del
-  árbol de documentos (WebDAV). Con la unidad de IureDav montada, basta con elegirla
-  como carpeta de salida.
-- **Cola** con progreso por página, cancelación y reintento. Arrastra archivos a la
-  ventana, ábrelos con IureOCR desde el sistema o con enlaces `iureocr://ocr?file=…`.
-- Para editar el resultado sugiere **OnlyOffice Desktop Editors**: lo detecta si está
-  instalado y, si no, enlaza su descarga. No se incluye.
+- **Local OCR with Tesseract** in Spanish and English (more languages if your
+  Tesseract has them). Nothing leaves the computer: neither the document nor the text.
+- Accepts **scanned PDFs** and **images** (JPG, PNG, TIFF, BMP, WEBP). The result is a
+  PDF with the original image and an invisible text layer on top: it can be searched
+  and copied, and the Iurefficient server indexes it without processing it again.
+  It also leaves a `.txt` with the plain text.
+- **Skips PDFs that already have text** (same rule as the server: fewer than 100
+  characters in the first three pages = needs recognition). It can be forced.
+- **Save to Iurefficient**: to a project (REST API) or to any folder in the document
+  tree (WebDAV). With the IureDav drive mounted, just choose it as the output folder.
+- **Queue** with per-page progress, cancel and retry. Drag files onto the window,
+  open them with IureOCR from the system or with `iureocr://ocr?file=…` links.
+- For editing the result it suggests **OnlyOffice Desktop Editors**: it detects it if
+  installed and otherwise links to its download. It is not bundled.
+- **English and Spanish interface**: English by default, and Spanish if the operating
+  system is set to Spanish; it can be changed in Settings → Appearance. This is
+  independent of the text languages Tesseract recognizes.
 
-Pendiente para versiones siguientes (ver [CHANGELOG](CHANGELOG.md)): herramientas PDF
-(unir, dividir, extraer y borrar páginas, rotar, proteger con contraseña, marca de
-agua, numerar), compresión real de imágenes, rescate de páginas ilegibles con un
-modelo de visión y la lista de documentos pendientes de OCR de la instancia.
+Planned for upcoming versions (see the [CHANGELOG](CHANGELOG.md)): PDF tools (merge,
+split, extract and delete pages, rotate, password protection, watermark, page
+numbers), real image compression, rescuing unreadable pages with a vision model, and
+the instance's list of documents pending OCR.
 
-## Cómo funciona por dentro
+## How it works inside
 
-1. **pdfium** rasteriza cada página del PDF a JPEG a la resolución elegida (300 ppp
-   por defecto). Las imágenes se pasan tal cual.
-2. **Tesseract** recibe la lista de páginas y produce, él mismo, el PDF con la capa
-   de texto (su renderizador `pdf`, el mismo que usa ocrmypdf) y el `.txt`.
-3. El resultado se guarda junto al original con el sufijo ` - OCR` (configurable) o
-   en una carpeta fija.
+1. **pdfium** rasterizes each PDF page to JPEG at the chosen resolution (300 dpi by
+   default). Images are passed as they are.
+2. **Tesseract** receives the list of pages and produces the PDF with the text layer
+   itself (its `pdf` renderer, the same one ocrmypdf uses) and the `.txt`.
+3. The result is saved next to the original with the suffix ` - OCR` (configurable)
+   or in a fixed folder.
 
-Un PDF con texto ya legible no se rasteriza: se avisa y se ofrece forzarlo.
+A PDF that already has readable text is not rasterized: the app says so and offers
+to force it.
 
-## Tesseract en cada sistema
+## Tesseract on each system
 
-| Sistema | De dónde sale Tesseract | Modelos de idioma |
+| System | Where Tesseract comes from | Language models |
 | --- | --- | --- |
-| Linux | el paquete del sistema: el `.deb`/`.rpm` dependen de `tesseract-ocr` con `spa` y `eng` | los incluidos en la app (`tessdata_fast`) |
-| Windows | **incluido en el instalador** (build de UB Mannheim, Apache-2.0) | incluidos |
-| macOS | `brew install tesseract` (por ahora no va incluido) | incluidos |
+| Linux | the system package: the `.deb`/`.rpm` depend on `tesseract-ocr` with `spa` and `eng` | the ones bundled with the app (`tessdata_fast`) |
+| Windows | **bundled in the installer** (UB Mannheim build, Apache-2.0) | bundled |
+| macOS | `brew install tesseract` (not bundled for now) | bundled |
 
-La app busca Tesseract en este orden: la variable `IUREOCR_TESSERACT`, el que viene
-dentro del instalador, las rutas habituales del sistema y el `PATH`. En Ajustes se ve
-cuál encontró, su versión y los idiomas disponibles.
+The app looks for Tesseract in this order: the `IUREOCR_TESSERACT` variable, the one
+inside the installer, the usual system paths and the `PATH`. Settings shows which one
+it found, its version and the available languages.
 
-## Desarrollo
+## Development
 
-Requisitos: Node 22, Rust estable, las dependencias de Tauri 2 de tu sistema y
-Tesseract instalado (en Linux `sudo apt install tesseract-ocr tesseract-ocr-spa
+Requirements: Node 22, stable Rust, the Tauri 2 dependencies for your system and
+Tesseract installed (on Linux `sudo apt install tesseract-ocr tesseract-ocr-spa
 tesseract-ocr-eng`).
 
 ```bash
 npm ci
-python3 scripts/descargar-pdfium.py     # biblioteca pdfium de esta plataforma
-python3 scripts/descargar-tessdata.py   # modelos spa, eng y osd (tessdata_fast)
+python3 scripts/descargar-pdfium.py     # pdfium library for this platform
+python3 scripts/descargar-tessdata.py   # spa, eng and osd models (tessdata_fast)
 npm run tauri dev
 ```
 
-En Windows, además, `python3 scripts/descargar-tesseract-windows.py` deja el
-Tesseract que se empaqueta (requiere `7z`).
+On Windows, `python3 scripts/descargar-tesseract-windows.py` also fetches the
+Tesseract that gets bundled (requires `7z`).
 
 ```bash
-npm run check                 # tipos del frontend
+npm run check                 # frontend types
 cd src-tauri && cargo check   # backend
-npm run tauri build           # instaladores de esta plataforma
+npm run tauri build           # installers for this platform
 ```
 
-## Publicar una versión
+## Releasing a version
 
-Sube la versión en `package.json`, `src-tauri/Cargo.toml` y
-`src-tauri/tauri.conf.json`, añade la sección al CHANGELOG y etiqueta:
+Bump the version in `package.json`, `src-tauri/Cargo.toml` and
+`src-tauri/tauri.conf.json`, add the section to the CHANGELOG and tag:
 
 ```bash
 git commit -am "v0.2.0: …"
 git tag -a v0.2.0 -m "IureOCR 0.2.0" && git push --follow-tags
 ```
 
-`.github/workflows/build.yml` compila en cada push y, con una etiqueta `vX.Y.Z`,
-publica la release con instaladores para Windows (`1-windows-x64`), macOS
-(`2-macos-universal`) y Linux (`3-linux-x64`, `.deb`, `.rpm` y AppImage), más el
-`latest.json` del actualizador. Las actualizaciones se firman con la clave minisign
-de la app (`~/.tauri/iureocr-updater.key`); la firma Authenticode de Windows llega
-con SignPath cuando exista el token en los secretos del repositorio.
+`.github/workflows/build.yml` builds on every push and, with a `vX.Y.Z` tag,
+publishes the release with installers for Windows (`1-windows-x64`), macOS
+(`2-macos-universal`) and Linux (`3-linux-x64`, `.deb`, `.rpm` and AppImage), plus the
+updater's `latest.json`. Updates are signed with the app's minisign key
+(`~/.tauri/iureocr-updater.key`); Windows Authenticode signing arrives with SignPath
+once the token is in the repository secrets.
 
-## Dónde guarda las cosas
+## Where it stores things
 
-| Qué | Linux | Windows | macOS |
+| What | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| Ajustes | `~/.config/com.iurefficient.iureocr/settings.json` | `%APPDATA%\com.iurefficient.iureocr\settings.json` | `~/Library/Application Support/com.iurefficient.iureocr/settings.json` |
-| Registro | `~/.local/share/com.iurefficient.iureocr/logs/iureocr.log` | `%APPDATA%\com.iurefficient.iureocr\logs\iureocr.log` | `~/Library/Application Support/com.iurefficient.iureocr/logs/iureocr.log` |
+| Settings | `~/.config/com.iurefficient.iureocr/settings.json` | `%APPDATA%\com.iurefficient.iureocr\settings.json` | `~/Library/Application Support/com.iurefficient.iureocr/settings.json` |
+| Log | `~/.local/share/com.iurefficient.iureocr/logs/iureocr.log` | `%APPDATA%\com.iurefficient.iureocr\logs\iureocr.log` | `~/Library/Application Support/com.iurefficient.iureocr/logs/iureocr.log` |
 
-Las credenciales van al llavero del sistema, compartidas con las otras apps de
-Iurefficient; la cuenta activa (instancia y correo) en `<config>/iurefficient/`.
+Credentials go to the system keychain, shared with the other Iurefficient apps; the
+active account (instance and email) lives in `<config>/iurefficient/`.
 
 ## Code signing policy
 
 Free code signing provided by [SignPath.io](https://signpath.io), certificate by
 [SignPath Foundation](https://signpath.org).
-
-*Firma de código gratuita proporcionada por SignPath.io, con certificado de SignPath
-Foundation.*
 
 - **Committers and reviewers:** Eduardo Llaguno ([@ellaguno](https://github.com/ellaguno)).
 - **Approvers:** Eduardo Llaguno ([@ellaguno](https://github.com/ellaguno)).
@@ -132,7 +134,7 @@ machine. Specifically, IureOCR connects only to:
 It collects no telemetry and no usage statistics. Credentials are stored in the
 operating system keychain, never in configuration files.
 
-## Licencia
+## License
 
-MIT. Tesseract (Apache-2.0), pdfium (BSD-3) y los modelos `tessdata_fast`
-(Apache-2.0) conservan sus licencias.
+MIT. Tesseract (Apache-2.0), pdfium (BSD-3) and the `tessdata_fast` models
+(Apache-2.0) keep their own licenses.

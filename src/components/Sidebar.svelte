@@ -2,20 +2,21 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { app, isActive, toast, type View } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { t } from "../lib/i18n.svelte";
   import iconUrl from "../assets/icon.png";
 
-  const links = [
-    { label: "Sitio web", url: "https://iurefficient.com", icon: "globe" },
-    { label: "Demo", url: "https://demo.iurefficient.com", icon: "demo" },
-    { label: "YouTube", url: "https://youtube.com/@iurefficient", icon: "youtube" },
-  ];
+  let links = $derived([
+    { label: t("sidebar.website"), url: "https://iurefficient.com", icon: "globe" },
+    { label: t("sidebar.demo"), url: "https://demo.iurefficient.com", icon: "demo" },
+    { label: t("sidebar.youtube"), url: "https://youtube.com/@iurefficient", icon: "youtube" },
+  ]);
   function go(url: string) {
-    openUrl(url).catch((e) => toast(`No se pudo abrir ${url}: ${e}`, "error"));
+    openUrl(url).catch((e) => toast(t("sidebar.openUrlFailed", { url, error: String(e) }), "error"));
   }
-  const items: { id: View; label: string; icon: string }[] = [
-    { id: "ocr", label: "Documentos", icon: "doc" },
-    { id: "settings", label: "Ajustes", icon: "settings" },
-  ];
+  let items: { id: View; label: string; icon: string }[] = $derived([
+    { id: "ocr", label: t("sidebar.documents"), icon: "doc" },
+    { id: "settings", label: t("sidebar.settings"), icon: "settings" },
+  ]);
   let pending = $derived(app.jobs.filter((j) => j.status === "queued" || isActive(j)).length);
 
   // Colapsado: se recuerda la preferencia en ventanas anchas y se fuerza al estrechar la ventana.
@@ -50,7 +51,7 @@
       <div class="name">IureOCR</div>
       <div class="ver">v{app.sys?.version ?? ""}</div>
     </div>
-    <button class="toggle" onclick={toggle} title={collapsed ? "Expandir la barra lateral" : "Colapsar la barra lateral"} aria-expanded={!collapsed}>
+    <button class="toggle" onclick={toggle} title={collapsed ? t("sidebar.expand") : t("sidebar.collapse")} aria-expanded={!collapsed}>
       <Icon name="panel" size={16} />
     </button>
   </div>
@@ -77,19 +78,19 @@
   </div>
 
   {#if app.updateNotice}
-    <button class="update" onclick={() => openUrl(app.updateNotice!.url)} title={collapsed ? `Nueva versión ${app.updateNotice.version}` : "Abrir la página de descarga"}>
+    <button class="update" onclick={() => openUrl(app.updateNotice!.url)} title={collapsed ? t("sidebar.newVersion", { version: app.updateNotice.version }) : t("sidebar.openDownload")}>
       <Icon name="download" size={14} />
-      <span class="label">Nueva versión {app.updateNotice.version}</span>
+      <span class="label">{t("sidebar.newVersion", { version: app.updateNotice.version })}</span>
     </button>
   {/if}
   <div class="foot">
-    <button class="row conn" class:ok={app.iureSession?.loggedIn} onclick={() => (app.view = "settings")} title={app.iureSession?.loggedIn ? "Conectado a Iurefficient" : "Conectar con Iurefficient"}>
+    <button class="row conn" class:ok={app.iureSession?.loggedIn} onclick={() => (app.view = "settings")} title={app.iureSession?.loggedIn ? t("sidebar.connectedTo") : t("sidebar.connect")}>
       <Icon name="cloud" size={15} />
-      <span class="label">{app.iureSession?.loggedIn ? `Iurefficient: ${app.iureSession.name ?? "conectado"}` : "Conectar con Iurefficient"}</span>
+      <span class="label">{app.iureSession?.loggedIn ? t("sidebar.connectedAs", { name: app.iureSession.name ?? t("sidebar.connected") }) : t("sidebar.connect")}</span>
     </button>
     <button class="row conn" class:ok={!!app.sys?.tesseract} class:bad={!app.sys?.tesseract} onclick={() => (app.view = "settings")} title={app.sys?.tesseract ? app.sys.tesseract.exe : (app.sys?.tesseractError ?? "")}>
       <Icon name="text" size={15} />
-      <span class="label">{app.sys?.tesseract ? `Tesseract ${app.sys.tesseract.version}` : "Tesseract no encontrado"}</span>
+      <span class="label">{app.sys?.tesseract ? `Tesseract ${app.sys.tesseract.version}` : t("sidebar.tesseractMissing")}</span>
     </button>
   </div>
 </aside>

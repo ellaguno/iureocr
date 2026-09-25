@@ -14,6 +14,7 @@ import {
   type SystemInfo,
 } from "./api";
 import { baseName } from "./format";
+import { i18n, syncLanguage, t, tn } from "./i18n.svelte";
 
 export type View = "ocr" | "settings";
 /** `ready`: archivo listo sin pasar por OCR (p. ej. resultado de una edición de páginas). */
@@ -96,8 +97,16 @@ export function applyTheme() {
 
 export async function saveSettings(patch: Partial<Settings>) {
   if (!app.settings) return;
+  const prevLang = app.settings.uiLanguage;
   app.settings = await api.setSettings({ ...app.settings, ...patch });
   applyTheme();
+  if (app.settings.uiLanguage !== prevLang) await onLanguageChanged();
+}
+
+/** Cambió el idioma: se aplica al momento y se refrescan los textos que vienen del backend. */
+async function onLanguageChanged() {
+  await syncLanguage();
+  await Promise.allSettled([refreshSystem(), refreshApps(false), refreshIureSession()]);
 }
 
 export async function refreshSystem() {
@@ -124,7 +133,7 @@ export async function addFiles(paths: string[]): Promise<Job[]> {
     const job = newJob(p, app.settings?.autoOcr ? "queued" : "ready");
     added.push(job);
   }
-  if (ignored) toast(`${ignored} archivo(s) ignorado(s): sólo PDF e imágenes`, "info");
+  if (ignored) toast(tn("state.ignored", ignored), "info");
   if (added.length && !app.selectedJobId) app.selectedJobId = added[0].id;
   if (added.length && app.settings?.autoOcr) void startQueue();
   return added;
@@ -207,7 +216,7 @@ export function queuedCount(): number {
 export async function startQueue() {
   if (app.running) return;
   if (!app.sys?.tesseract) {
-    toast(app.sys?.tesseractError ?? "Tesseract no está disponible", "error", 9000);
+    toast(app.sys?.tesseractError ?? t("state.tesseractUnavailable"), "error", 9000);
     return;
   }
   app.running = true;
@@ -240,11 +249,12 @@ async function runJob(job: Job) {
     job.finishedAt = Date.now();
     if (!out.skipped) {
       const done = app.jobs.filter((j) => j.status === "done").length;
-      if (queuedCount() === 0) notify("IureOCR", `${done} documento(s) listos con texto buscable`);
+      if (queuedCount() === 0) notify("IureOCR", tn("state.notifyDone", done));
     }
   } catch (e) {
     const msg = String(e);
-    job.status = msg.includes("Cancelado") ? "cancelled" : "error";
+    // El backend responde «Cancelled» o «Cancelado» según el idioma.
+    job.status = msg.includes("Cancelado") || msg.includes("Cancelled") ? "cancelled" : "error";
     job.error = msg;
     job.finishedAt = Date.now();
     if (job.status === "error") toast(`${job.name}: ${msg}`, "error", 9000);
@@ -307,8 +317,9 @@ export async function refreshIureSession() {
 }
 
 export function term(key: "case" | "cases" | "client" | "clients"): string {
-  const t = app.iureSession?.terminology;
-  const v = t?.[key] || { case: "proyecto", cases: "proyectos", client: "cliente", clients: "clientes" }[key];
+  // La terminología del servidor viene en español: en inglés se usan los términos genéricos.
+  const custom = i18n.lang === "es" ? app.iureSession?.terminology?.[key] : undefined;
+  const v = custom || t(`term.${key}`);
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
@@ -325,17 +336,17 @@ export function filesOf(job: Job, includeTxt: boolean): string[] {
 export async function uploadJob(job: Job, target: { mode: "folder"; folder: string } | { mode: "case"; caseId: string | null; caseTitle: string }, includeTxt: boolean): Promise<boolean> {
   const files = filesOf(job, includeTxt);
   if (!files.length) {
-    toast("Este archivo aún no tiene resultado que subir", "error");
+    toast(t("state.nothingToUpload"), "error");
     return false;
   }
   job.upload = { jobId: job.id, fileName: "", index: 0, totalFiles: files.length, sent: 0, total: 0 };
   try {
     const res = await api.iureUpload(target.mode === "folder" ? { jobId: job.id, mode: "folder", folder: target.folder, files } : { jobId: job.id, mode: "case", caseId: target.caseId, caseTitle: target.caseTitle, files });
     job.saved = { target: res.target, webUrl: res.webUrl, fileNames: res.fileNames, at: Date.now() };
-    toast(`Guardado en ${res.target} (${res.fileNames.length} archivo(s))`, "success", 6000);
+    toast(tn("state.saved", res.fileNames.length, { target: res.target }), "success", 6000);
     return true;
   } catch (e) {
-    toast(`No se pudo guardar en Iurefficient: ${e}`, "error", 9000);
+    toast(t("state.saveFailed", { error: String(e) }), "error", 9000);
     return false;
   } finally {
     job.upload = null;
@@ -387,6 +398,7 @@ export async function handleLaunchArgs(args: string[]) {
 // Arranque
 // ---------------------------------------------------------------------------
 export async function init() {
+  await syncLanguage();
   const [settings, sys] = await Promise.all([api.getSettings(), api.systemInfo()]);
   app.settings = settings;
   app.sys = sys;

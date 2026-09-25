@@ -4,21 +4,28 @@
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
+use iurefficient_connect::{lang, tr};
 use std::path::{Path, PathBuf};
 
 /// Número de páginas de un PDF.
 pub fn page_count(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Result<usize> {
-    let doc = pdfium
-        .load_pdf_from_file(path, None)
-        .map_err(|e| anyhow!("No se pudo abrir el PDF: {e}"))?;
+    let doc = pdfium.load_pdf_from_file(path, None).map_err(|e| {
+        anyhow!(tr!(
+            "Could not open the PDF: {e}",
+            "No se pudo abrir el PDF: {e}"
+        ))
+    })?;
     Ok(doc.pages().len() as usize)
 }
 
 /// Tamaño (ancho, alto) en puntos de cada página, ya con su rotación aplicada.
 pub fn page_sizes(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Result<Vec<(f32, f32)>> {
-    let doc = pdfium
-        .load_pdf_from_file(path, None)
-        .map_err(|e| anyhow!("No se pudo abrir el PDF: {e}"))?;
+    let doc = pdfium.load_pdf_from_file(path, None).map_err(|e| {
+        anyhow!(tr!(
+            "Could not open the PDF: {e}",
+            "No se pudo abrir el PDF: {e}"
+        ))
+    })?;
     Ok(doc
         .pages()
         .iter()
@@ -28,8 +35,13 @@ pub fn page_sizes(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Resul
 
 /// Tamaño en píxeles de un archivo de imagen, como una sola página.
 pub fn image_size(path: &Path) -> Result<Vec<(f32, f32)>> {
-    let (w, h) = image::image_dimensions(path)
-        .with_context(|| format!("No se pudo leer la imagen {}", path.display()))?;
+    let (w, h) = image::image_dimensions(path).with_context(|| {
+        tr!(
+            "Could not read the image {}",
+            "No se pudo leer la imagen {}",
+            path.display()
+        )
+    })?;
     Ok(vec![(w as f32, h as f32)])
 }
 
@@ -51,22 +63,35 @@ pub fn thumbnails(
     width: u32,
 ) -> Result<Vec<String>> {
     use pdfium_render::prelude::*;
-    let doc = pdfium
-        .load_pdf_from_file(path, None)
-        .map_err(|e| anyhow!("No se pudo abrir el PDF: {e}"))?;
+    let doc = pdfium.load_pdf_from_file(path, None).map_err(|e| {
+        anyhow!(tr!(
+            "Could not open the PDF: {e}",
+            "No se pudo abrir el PDF: {e}"
+        ))
+    })?;
     let pages = doc.pages();
     let mut out = Vec::with_capacity(indices.len());
     for &i in indices {
         let page = pages
             .get(i as pdfium_render::prelude::PdfPageIndex)
-            .map_err(|e| anyhow!("Página {} fuera de rango: {e}", i + 1))?;
+            .map_err(|e| {
+                anyhow!(tr!(
+                    "Page {} out of range: {e}",
+                    "Página {} fuera de rango: {e}",
+                    i + 1
+                ))
+            })?;
         let cfg = PdfRenderConfig::new().set_target_width(width as i32);
-        let bitmap = page
-            .render_with_config(&cfg)
-            .map_err(|e| anyhow!("No se pudo dibujar la página {}: {e}", i + 1))?;
+        let bitmap = page.render_with_config(&cfg).map_err(|e| {
+            anyhow!(tr!(
+                "Could not render page {}: {e}",
+                "No se pudo dibujar la página {}: {e}",
+                i + 1
+            ))
+        })?;
         let rgb = bitmap
             .as_image()
-            .map_err(|e| anyhow!("Página {}: {e}", i + 1))?
+            .map_err(|e| anyhow!(tr!("Page {}: {e}", "Página {}: {e}", i + 1)))?
             .to_rgb8();
         out.push(jpeg_data_url(&rgb, quality_for(width))?);
     }
@@ -84,8 +109,13 @@ fn quality_for(width: u32) -> u8 {
 
 /// Miniatura de un archivo de imagen (JPG, PNG, TIFF…).
 pub fn image_thumbnail(path: &Path, width: u32) -> Result<String> {
-    let img = image::open(path)
-        .with_context(|| format!("No se pudo leer la imagen {}", path.display()))?;
+    let img = image::open(path).with_context(|| {
+        tr!(
+            "Could not read the image {}",
+            "No se pudo leer la imagen {}",
+            path.display()
+        )
+    })?;
     let small = if img.width() > width {
         img.thumbnail(width, width * 3)
     } else {
@@ -96,10 +126,13 @@ pub fn image_thumbnail(path: &Path, width: u32) -> Result<String> {
 
 fn load(path: &Path) -> Result<lopdf::Document> {
     let mut doc = lopdf::Document::load(path)
-        .with_context(|| format!("No se pudo leer {}", path.display()))?;
+        .with_context(|| tr!("Could not read {}", "No se pudo leer {}", path.display()))?;
     if doc.is_encrypted() {
         doc.decrypt("").map_err(|_| {
-            anyhow!("El PDF está protegido con contraseña; quítala antes de editarlo")
+            anyhow!(tr!(
+                "The PDF is password-protected; remove the password before editing it",
+                "El PDF está protegido con contraseña; quítala antes de editarlo"
+            ))
         })?;
     }
     Ok(doc)
@@ -114,7 +147,7 @@ pub fn sibling_output(input: &Path, suffix: &str) -> PathBuf {
     let stem = input
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "documento".into());
+        .unwrap_or_else(|| lang::pick("document", "documento").into());
     let first = dir.join(format!("{stem}{suffix}.pdf"));
     if !first.exists() {
         return first;
@@ -132,8 +165,13 @@ fn finish(mut doc: lopdf::Document, output: &Path) -> Result<()> {
     doc.prune_objects();
     doc.renumber_objects();
     doc.compress();
-    doc.save(output)
-        .with_context(|| format!("No se pudo escribir {}", output.display()))?;
+    doc.save(output).with_context(|| {
+        tr!(
+            "Could not write {}",
+            "No se pudo escribir {}",
+            output.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -147,10 +185,16 @@ pub fn delete_pages(input: &Path, pages: &[u32], output: &Path) -> Result<usize>
         .filter(|p| *p >= 1 && (*p as usize) <= total)
         .collect();
     if valid.len() >= total {
-        return Err(anyhow!("No se pueden quitar todas las páginas"));
+        return Err(anyhow!(tr!(
+            "You cannot remove every page",
+            "No se pueden quitar todas las páginas"
+        )));
     }
     if valid.is_empty() {
-        return Err(anyhow!("No hay páginas que quitar"));
+        return Err(anyhow!(tr!(
+            "There are no pages to remove",
+            "No hay páginas que quitar"
+        )));
     }
     doc.delete_pages(&valid);
     finish(doc, output)?;
@@ -167,11 +211,17 @@ pub fn keep_pages(input: &Path, pages: &[u32], output: &Path) -> Result<usize> {
         .filter(|p| *p >= 1 && (*p as usize) <= total)
         .collect();
     if keep.is_empty() {
-        return Err(anyhow!("Elige al menos una página"));
+        return Err(anyhow!(tr!(
+            "Choose at least one page",
+            "Elige al menos una página"
+        )));
     }
     let remove: Vec<u32> = (1..=total as u32).filter(|p| !keep.contains(p)).collect();
     if remove.is_empty() {
-        return Err(anyhow!("Ya están todas las páginas"));
+        return Err(anyhow!(tr!(
+            "All pages are already included",
+            "Ya están todas las páginas"
+        )));
     }
     let mut doc = doc;
     doc.delete_pages(&remove);
@@ -190,7 +240,7 @@ pub fn rotate_pages(input: &Path, pages: &[u32], degrees: i64, output: &Path) ->
         let dict = doc
             .get_object_mut(id)
             .and_then(|o| o.as_dict_mut())
-            .map_err(|e| anyhow!("Página {p}: {e}"))?;
+            .map_err(|e| anyhow!(tr!("Page {p}: {e}", "Página {p}: {e}")))?;
         let current = dict
             .get(b"Rotate")
             .ok()
@@ -200,7 +250,10 @@ pub fn rotate_pages(input: &Path, pages: &[u32], degrees: i64, output: &Path) ->
         done += 1;
     }
     if done == 0 {
-        return Err(anyhow!("No hay páginas que rotar"));
+        return Err(anyhow!(tr!(
+            "There are no pages to rotate",
+            "No hay páginas que rotar"
+        )));
     }
     finish(doc, output)?;
     Ok(done)
@@ -219,16 +272,27 @@ pub fn reorder_pages(input: &Path, order: &[u32], output: &Path) -> Result<usize
     let total = ids.len();
     let mut seen = std::collections::BTreeSet::new();
     if order.len() != total || !order.iter().all(|p| ids.contains_key(p) && seen.insert(*p)) {
-        return Err(anyhow!("El orden debe incluir cada página una sola vez"));
+        return Err(anyhow!(tr!(
+            "The order must include each page exactly once",
+            "El orden debe incluir cada página una sola vez"
+        )));
     }
     if order.iter().enumerate().all(|(i, p)| *p as usize == i + 1) {
-        return Err(anyhow!("Las páginas ya están en ese orden"));
+        return Err(anyhow!(tr!(
+            "The pages are already in that order",
+            "Las páginas ya están en ese orden"
+        )));
     }
     let root_pages = doc
         .catalog()
         .and_then(|c| c.get(b"Pages"))
         .and_then(Object::as_reference)
-        .map_err(|e| anyhow!("PDF sin árbol de páginas: {e}"))?;
+        .map_err(|e| {
+            anyhow!(tr!(
+                "PDF without a page tree: {e}",
+                "PDF sin árbol de páginas: {e}"
+            ))
+        })?;
 
     for &id in ids.values() {
         // Sube por los padres y copia lo que la página no define por sí misma.
@@ -259,7 +323,7 @@ pub fn reorder_pages(input: &Path, order: &[u32], output: &Path) -> Result<usize
         let page = doc
             .get_object_mut(id)
             .and_then(|o| o.as_dict_mut())
-            .map_err(|e| anyhow!("Página: {e}"))?;
+            .map_err(|e| anyhow!(tr!("Page: {e}", "Página: {e}")))?;
         for (k, v) in inherited.iter() {
             if !page.has(k) {
                 page.set(k.clone(), v.clone());
@@ -272,7 +336,7 @@ pub fn reorder_pages(input: &Path, order: &[u32], output: &Path) -> Result<usize
     let pages = doc
         .get_object_mut(root_pages)
         .and_then(|o| o.as_dict_mut())
-        .map_err(|e| anyhow!("Árbol de páginas: {e}"))?;
+        .map_err(|e| anyhow!(tr!("Page tree: {e}", "Árbol de páginas: {e}")))?;
     pages.set("Kids", Object::Array(kids));
     pages.set("Count", Object::Integer(total as i64));
     for key in INHERITABLE {

@@ -6,6 +6,7 @@
 //! para que el resultado sea el mismo en las tres plataformas.
 
 use anyhow::{anyhow, Result};
+use iurefficient_connect::tr;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -149,7 +150,8 @@ pub fn locate(resource_dir: Option<&Path>) -> Result<Tesseract> {
             });
         }
     }
-    Err(anyhow!(
+    Err(anyhow!(tr!(
+        "Tesseract was not found. On Linux: sudo apt install tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng. On macOS: brew install tesseract tesseract-lang. On Windows it comes with the installer.",
         "No se encontró Tesseract. En Linux: sudo apt install tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng. En macOS: brew install tesseract tesseract-lang. En Windows viene dentro del instalador."
-    ))
+    )))
 }

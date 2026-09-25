@@ -10,6 +10,7 @@
 
 use crate::tesseract::{hidden_command, Tesseract};
 use anyhow::{anyhow, Context, Result};
+use iurefficient_connect::{lang, tr};
 use serde::Serialize;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -86,9 +87,14 @@ fn free_path(dir: &Path, stem: &str, suffix: &str, ext: &str) -> PathBuf {
     first
 }
 
+/// Error de cancelación. La interfaz lo reconoce por este texto (en cualquier idioma).
+pub fn cancelled_message() -> &'static str {
+    lang::pick("Cancelled", "Cancelado")
+}
+
 fn check_cancel(cancel: &AtomicBool) -> Result<()> {
     if cancel.load(Ordering::Relaxed) {
-        return Err(anyhow!("Cancelado"));
+        return Err(anyhow!(cancelled_message()));
     }
     Ok(())
 }
@@ -116,7 +122,12 @@ pub fn pdfium(pdfium_dir: Option<&Path>) -> Result<&'static pdfium_render::prelu
             .or_else(|_| Pdfium::bind_to_system_library()),
         None => Pdfium::bind_to_system_library(),
     }
-    .map_err(|e| anyhow!("No se pudo cargar pdfium (la biblioteca que lee PDF): {e}"))?;
+    .map_err(|e| {
+        anyhow!(tr!(
+            "Could not load pdfium (the PDF reading library): {e}",
+            "No se pudo cargar pdfium (la biblioteca que lee PDF): {e}"
+        ))
+    })?;
     let _ = PDFIUM.set(Pdfium::new(bindings));
     Ok(PDFIUM.get().expect("pdfium recién inicializado"))
 }
@@ -134,12 +145,18 @@ fn rasterize(
 ) -> Result<(Vec<PathBuf>, usize)> {
     use pdfium_render::prelude::*;
 
-    let doc = pdfium
-        .load_pdf_from_file(input, None)
-        .map_err(|e| anyhow!("No se pudo abrir el PDF: {e}"))?;
+    let doc = pdfium.load_pdf_from_file(input, None).map_err(|e| {
+        anyhow!(tr!(
+            "Could not open the PDF: {e}",
+            "No se pudo abrir el PDF: {e}"
+        ))
+    })?;
     let total = doc.pages().len() as usize;
     if total == 0 {
-        return Err(anyhow!("El PDF no tiene páginas"));
+        return Err(anyhow!(tr!(
+            "The PDF has no pages",
+            "El PDF no tiene páginas"
+        )));
     }
 
     // ¿Ya tiene texto? Se mira antes de rasterizar nada.
@@ -159,18 +176,33 @@ fn rasterize(
         let width_pt = page.width().value;
         let target_w = ((width_pt * dpi as f32) / 72.0).round().max(200.0) as i32;
         let cfg = PdfRenderConfig::new().set_target_width(target_w);
-        let bitmap = page
-            .render_with_config(&cfg)
-            .map_err(|e| anyhow!("No se pudo rasterizar la página {}: {e}", i + 1))?;
+        let bitmap = page.render_with_config(&cfg).map_err(|e| {
+            anyhow!(tr!(
+                "Could not rasterize page {}: {e}",
+                "No se pudo rasterizar la página {}: {e}",
+                i + 1
+            ))
+        })?;
         let rgb = bitmap
             .as_image()
-            .map_err(|e| anyhow!("No se pudo convertir la página {}: {e}", i + 1))?
+            .map_err(|e| {
+                anyhow!(tr!(
+                    "Could not convert page {}: {e}",
+                    "No se pudo convertir la página {}: {e}",
+                    i + 1
+                ))
+            })?
             .to_rgb8();
         let out = dir.join(format!("p{:05}.jpg", i + 1));
         let mut f = std::fs::File::create(&out)?;
         let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut f, quality);
-        enc.encode_image(&rgb)
-            .map_err(|e| anyhow!("No se pudo guardar la página {}: {e}", i + 1))?;
+        enc.encode_image(&rgb).map_err(|e| {
+            anyhow!(tr!(
+                "Could not save page {}: {e}",
+                "No se pudo guardar la página {}: {e}",
+                i + 1
+            ))
+        })?;
         files.push(out);
         progress("render", i + 1, total);
     }
@@ -222,9 +254,13 @@ fn run_tesseract(
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     cmd.env("OMP_THREAD_LIMIT", "4");
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("No se pudo ejecutar Tesseract en {}", tess.exe))?;
+    let mut child = cmd.spawn().with_context(|| {
+        tr!(
+            "Could not run Tesseract at {}",
+            "No se pudo ejecutar Tesseract en {}",
+            tess.exe
+        )
+    })?;
 
     let stderr = child.stderr.take();
     let log = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
@@ -262,7 +298,7 @@ fn run_tesseract(
             let _ = child.kill();
             let _ = child.wait();
             let _ = reader.join();
-            return Err(anyhow!("Cancelado"));
+            return Err(anyhow!(cancelled_message()));
         }
         match child.try_wait()? {
             Some(st) => break st,
@@ -293,7 +329,10 @@ fn run_tesseract(
             .rev()
             .collect::<Vec<_>>()
             .join(" · ");
-        return Err(anyhow!("Tesseract terminó con error ({status}). {tail}"));
+        return Err(anyhow!(tr!(
+            "Tesseract failed ({status}). {tail}",
+            "Tesseract terminó con error ({status}). {tail}"
+        )));
     }
     progress("ocr", total, total);
     Ok(())
@@ -308,15 +347,24 @@ pub fn run(
 ) -> Result<Outcome> {
     let started = Instant::now();
     if !req.input.is_file() {
-        return Err(anyhow!("No existe el archivo {}", req.input.display()));
+        return Err(anyhow!(tr!(
+            "File not found: {}",
+            "No existe el archivo {}",
+            req.input.display()
+        )));
     }
     let stem = req
         .input
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "documento".into());
-    std::fs::create_dir_all(&req.output_dir)
-        .with_context(|| format!("No se pudo crear la carpeta {}", req.output_dir.display()))?;
+        .unwrap_or_else(|| lang::pick("document", "documento").into());
+    std::fs::create_dir_all(&req.output_dir).with_context(|| {
+        tr!(
+            "Could not create the folder {}",
+            "No se pudo crear la carpeta {}",
+            req.output_dir.display()
+        )
+    })?;
 
     let work = std::env::temp_dir().join(format!("iureocr-{}", req.job_id));
     let _ = std::fs::remove_dir_all(&work);
@@ -356,16 +404,20 @@ fn run_in(
                 pages: 0,
                 chars: existing,
                 elapsed_secs: 0.0,
-                note: Some("El PDF ya tiene capa de texto; no hace falta OCR. Puedes forzarlo desde el menú del archivo.".into()),
+                note: Some(tr!(
+                    "The PDF already has a text layer; no OCR needed. You can force it from the file's options.",
+                    "El PDF ya tiene capa de texto; no hace falta OCR. Puedes forzarlo desde el menú del archivo."
+                )),
             });
         }
         files
     } else if is_image(&req.input) {
         vec![req.input.clone()]
     } else {
-        return Err(anyhow!(
+        return Err(anyhow!(tr!(
+            "Unsupported format: only PDF and images (JPG, PNG, TIFF, BMP, WEBP)",
             "Formato no admitido: sólo PDF e imágenes (JPG, PNG, TIFF, BMP, WEBP)"
-        ));
+        )));
     };
 
     let outbase = work.join("salida");
@@ -382,7 +434,10 @@ fn run_in(
     let pdf_tmp = outbase.with_extension("pdf");
     let txt_tmp = outbase.with_extension("txt");
     if !pdf_tmp.is_file() {
-        return Err(anyhow!("Tesseract no produjo el PDF"));
+        return Err(anyhow!(tr!(
+            "Tesseract did not produce the PDF",
+            "Tesseract no produjo el PDF"
+        )));
     }
     let text = std::fs::read_to_string(&txt_tmp).unwrap_or_default();
     let chars = text.chars().filter(|c| !c.is_whitespace()).count();
@@ -393,10 +448,10 @@ fn run_in(
     std::fs::write(&txt_path, &text)?;
 
     let note = if chars < 40 {
-        Some(
+        Some(tr!(
+            "Very little text was recognized: it may be a blurry or handwritten photo, or in another language.",
             "Se reconoció muy poco texto: puede ser una foto borrosa, manuscrita o en otro idioma."
-                .into(),
-        )
+        ))
     } else {
         None
     };
@@ -475,9 +530,13 @@ impl Worker {
                 cancel,
                 reply,
             })
-            .map_err(|_| anyhow!("el hilo de OCR se detuvo"))?;
-        rx.await
-            .map_err(|_| anyhow!("el hilo de OCR no respondió"))?
+            .map_err(|_| anyhow!(tr!("the OCR thread stopped", "el hilo de OCR se detuvo")))?;
+        rx.await.map_err(|_| {
+            anyhow!(tr!(
+                "the OCR thread did not respond",
+                "el hilo de OCR no respondió"
+            ))
+        })?
     }
 }
 
@@ -486,7 +545,8 @@ fn move_file(from: &Path, to: &Path) -> Result<()> {
     if std::fs::rename(from, to).is_ok() {
         return Ok(());
     }
-    std::fs::copy(from, to).with_context(|| format!("No se pudo escribir {}", to.display()))?;
+    std::fs::copy(from, to)
+        .with_context(|| tr!("Could not write {}", "No se pudo escribir {}", to.display()))?;
     let _ = std::fs::remove_file(from);
     Ok(())
 }

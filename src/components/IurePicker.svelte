@@ -2,6 +2,7 @@
   import { api, type IureCase, type IureListing } from "../lib/api";
   import { app, iureLoggedIn, term, toast, uploadJob, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { t } from "../lib/i18n.svelte";
 
   let { job, onclose }: { job: Job; onclose: () => void } = $props();
 
@@ -31,9 +32,9 @@
       loading = true;
       try {
         const created = await api.iureEnsureWebdavPassword();
-        if (created) toast("Se creó una contraseña de aplicación WebDAV con tu sesión", "success", 5000);
+        if (created) toast(t("picker.webdavCreated"), "success", 5000);
       } catch (e) {
-        error = `No se pudo preparar el acceso WebDAV: ${e}`;
+        error = t("picker.webdavFailed", { error: String(e) });
         loading = false;
         return;
       } finally {
@@ -88,27 +89,27 @@
 </script>
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && !job.upload && onclose()}>
-  <div class="modal card" role="dialog" aria-modal="true" aria-label="Guardar en Iurefficient">
+  <div class="modal card" role="dialog" aria-modal="true" aria-label={t("common.saveToIure")}>
     <div class="head">
-      <h2><Icon name="upload" size={17} /> Guardar en Iurefficient</h2>
-      <button class="btn icon ghost" onclick={onclose} disabled={!!job.upload} aria-label="Cerrar"><Icon name="x" size={16} /></button>
+      <h2><Icon name="upload" size={17} /> {t("common.saveToIure")}</h2>
+      <button class="btn icon ghost" onclick={onclose} disabled={!!job.upload} aria-label={t("common.close")}><Icon name="x" size={16} /></button>
     </div>
     <div class="modes">
-      <button class:active={mode === "case"} onclick={() => (mode = "case")} disabled={!iureLoggedIn()} title={iureLoggedIn() ? "" : "Inicia sesión en Ajustes"}><Icon name="layers" size={14} /> {term("case")}</button>
-      <button class:active={mode === "folder"} onclick={openFolderMode}><Icon name="folder" size={14} /> Carpeta</button>
+      <button class:active={mode === "case"} onclick={() => (mode = "case")} disabled={!iureLoggedIn()} title={iureLoggedIn() ? "" : t("picker.signInFirst")}><Icon name="layers" size={14} /> {term("case")}</button>
+      <button class:active={mode === "folder"} onclick={openFolderMode}><Icon name="folder" size={14} /> {t("picker.folder")}</button>
     </div>
 
     {#if mode === "case"}
       <div class="search">
-        <input class="input" placeholder="Buscar {term("case").toLowerCase()} por número, título o {term("client").toLowerCase()}…" bind:value={caseQuery} oninput={onCaseInput} />
+        <input class="input" placeholder={t("picker.searchCases", { case: term("case").toLowerCase(), client: term("client").toLowerCase() })} bind:value={caseQuery} oninput={onCaseInput} />
       </div>
       <div class="list scroll">
         {#if loading}
-          <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> Buscando…</div>
+          <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> {t("picker.searching")}</div>
         {:else if error}
           <div class="empty err"><Icon name="alert" size={16} /> {error}</div>
         {:else if !cases.length}
-          <div class="empty">Sin resultados</div>
+          <div class="empty">{t("picker.noResults")}</div>
         {:else}
           {#each cases as c (c.id)}
             <button class="row" class:selected={selectedCase?.id === c.id} onclick={() => (selectedCase = c)}>
@@ -121,7 +122,7 @@
       </div>
     {:else}
       <div class="crumbs">
-        <button class="crumb" onclick={() => go("")} disabled={loading}><Icon name="cloud" size={13} /> Documentos</button>
+        <button class="crumb" onclick={() => go("")} disabled={loading}><Icon name="cloud" size={13} /> {t("common.documents")}</button>
         {#each crumbs as c, i}
           <span class="sep">/</span>
           <button class="crumb" onclick={() => go(crumbs.slice(0, i + 1).join("/"))} disabled={loading}>{c}</button>
@@ -129,7 +130,7 @@
       </div>
       <div class="list scroll">
         {#if loading}
-          <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> Cargando…</div>
+          <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> {t("common.loading")}</div>
         {:else if error}
           <div class="empty err"><Icon name="alert" size={16} /> {error}</div>
         {:else if listing}
@@ -140,21 +141,21 @@
               <Icon name="chevronRight" size={14} />
             </button>
           {:else}
-            <div class="empty">Sin subcarpetas</div>
+            <div class="empty">{t("picker.noSubfolders")}</div>
           {/each}
         {/if}
       </div>
     {/if}
 
     <div class="files">
-      <label class="check"><input type="checkbox" bind:checked={includeTxt} /> Subir también el texto plano (.txt)</label>
-      <p class="hint">Se sube el PDF con texto buscable{includeTxt ? " y el .txt" : ""} a {mode === "folder" ? (listing?.path || "la raíz") : selectedCase ? `${selectedCase.caseNumber} · ${selectedCase.title}` : `un ${term("case").toLowerCase()}`}.</p>
+      <label class="check"><input type="checkbox" bind:checked={includeTxt} /> {t("picker.includeTxt")}</label>
+      <p class="hint">{t("picker.summary", { txt: includeTxt ? t("picker.andTxt") : "", target: mode === "folder" ? (listing?.path || t("picker.root")) : selectedCase ? `${selectedCase.caseNumber} · ${selectedCase.title}` : t("picker.aCase", { case: term("case").toLowerCase() }) })}</p>
     </div>
     <div class="foot-row">
       <span class="grow"></span>
-      <button class="btn" onclick={onclose} disabled={!!job.upload}>Cancelar</button>
+      <button class="btn" onclick={onclose} disabled={!!job.upload}>{t("common.cancel")}</button>
       <button class="btn primary" onclick={save} disabled={!canSave}>
-        {#if job.upload}<span class="spin"><Icon name="loader" size={15} /></span> Subiendo…{:else}<Icon name="upload" size={15} /> Guardar{/if}
+        {#if job.upload}<span class="spin"><Icon name="loader" size={15} /></span> {t("common.uploading")}{:else}<Icon name="upload" size={15} /> {t("picker.save")}{/if}
       </button>
     </div>
   </div>

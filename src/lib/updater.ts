@@ -1,6 +1,7 @@
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { api, type UpdateNotice } from "./api";
 import { app, toast } from "./state.svelte";
+import { t } from "./i18n.svelte";
 
 /**
  * Actualizaciones en dos capas: el actualizador de Tauri (instala dentro de la
@@ -13,16 +14,16 @@ export async function checkForUpdates(silent: boolean): Promise<void> {
     const update = await check(target ? { target } : undefined);
     if (update) {
       app.updateNotice = { version: update.version, url: "https://github.com/ellaguno/iureocr/releases/latest" };
-      const install = await ask(`Hay una nueva versión de IureOCR (${update.version}).\n¿Descargar e instalar ahora?`, {
-        title: "IureOCR — Actualización disponible",
+      const install = await ask(t("update.available", { version: update.version }), {
+        title: t("update.availableTitle"),
         kind: "info",
-        okLabel: "Actualizar",
-        cancelLabel: "Ahora no",
+        okLabel: t("update.install"),
+        cancelLabel: t("update.notNow"),
       });
       if (!install) return;
-      toast("Descargando la actualización…", "info", 6000);
+      toast(t("update.downloading"), "info", 6000);
       await update.downloadAndInstall();
-      const restart = await ask("Actualización instalada. ¿Reiniciar IureOCR ahora?", { title: "IureOCR", kind: "info", okLabel: "Reiniciar", cancelLabel: "Después" });
+      const restart = await ask(t("update.installed"), { title: "IureOCR", kind: "info", okLabel: t("update.restart"), cancelLabel: t("update.later") });
       if (restart) {
         const { relaunch } = await import("@tauri-apps/plugin-process");
         await relaunch();
@@ -36,9 +37,9 @@ export async function checkForUpdates(silent: boolean): Promise<void> {
   try {
     notice = await api.checkUpdateNotice();
   } catch (err) {
-    if (!silent) await message(`No se pudo buscar actualizaciones.\n${err}`, { title: "IureOCR", kind: "warning" });
+    if (!silent) await message(t("update.checkFailed", { error: String(err) }), { title: "IureOCR", kind: "warning" });
     return;
   }
   app.updateNotice = notice;
-  if (!notice && !silent) await message("Ya tienes la última versión.", { title: "IureOCR", kind: "info" });
+  if (!notice && !silent) await message(t("update.upToDate"), { title: "IureOCR", kind: "info" });
 }

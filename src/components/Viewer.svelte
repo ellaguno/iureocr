@@ -4,6 +4,7 @@
   import { api } from "../lib/api";
   import { isActive, pdfOf, requestOcr, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { t } from "../lib/i18n.svelte";
 
   let { job, start = 0, onclose, onpages }: { job: Job; start?: number; onclose: () => void; onpages: () => void } = $props();
 
@@ -104,7 +105,7 @@
           }
           same.forEach((i, k) => (imgs[i] = { w, url: urls[k] }));
         } catch (e) {
-          toast(`No se pudo dibujar la página: ${e}`, "error", 8000);
+          toast(t("viewer.renderFailed", { error: String(e) }), "error", 8000);
           break;
         }
         again = true;
@@ -173,41 +174,41 @@
     try {
       await openPath(source);
     } catch (e) {
-      toast(`No se pudo abrir: ${e}`, "error");
+      toast(t("common.openFailed", { error: String(e) }), "error");
     }
   }
 </script>
 
 <svelte:window onkeydown={onkey} />
 
-<div class="viewer" role="dialog" aria-modal="true" aria-label="Visor">
+<div class="viewer" role="dialog" aria-modal="true" aria-label={t("viewer.label")}>
   <div class="bar">
     <div class="title">
       <Icon name={source.toLowerCase().endsWith(".pdf") ? "doc" : "image"} size={17} />
       <span class="name" title={source}>{job.name}</span>
-      {#if job.result?.pdfPath}<span class="pill success">con OCR</span>{/if}
+      {#if job.result?.pdfPath}<span class="pill success">{t("common.withOcr")}</span>{/if}
     </div>
     <div class="nav">
-      <button class="btn icon ghost" title="Página anterior (RePág)" onclick={() => goTo(current - 1)} disabled={current <= 0}><Icon name="left" size={16} /></button>
+      <button class="btn icon ghost" title={t("viewer.prev")} onclick={() => goTo(current - 1)} disabled={current <= 0}><Icon name="left" size={16} /></button>
       <form onsubmit={submitPage}>
-        <input class="page-in" bind:value={pageInput} aria-label="Página" inputmode="numeric" onblur={submitPage} />
+        <input class="page-in" bind:value={pageInput} aria-label={t("viewer.page")} inputmode="numeric" onblur={submitPage} />
       </form>
       <span class="hint">/ {total || "…"}</span>
-      <button class="btn icon ghost" title="Página siguiente (AvPág)" onclick={() => goTo(current + 1)} disabled={current >= total - 1}><Icon name="right" size={16} /></button>
+      <button class="btn icon ghost" title={t("viewer.next")} onclick={() => goTo(current + 1)} disabled={current >= total - 1}><Icon name="right" size={16} /></button>
       <span class="sep"></span>
-      <button class="btn icon ghost" title="Alejar (−)" onclick={() => setZoom(zoom - 0.2)} disabled={zoom <= 0.4}><Icon name="minus" size={16} /></button>
-      <button class="btn sm ghost zoom" title="Ajustar al ancho (0)" onclick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-      <button class="btn icon ghost" title="Acercar (+)" onclick={() => setZoom(zoom + 0.2)} disabled={zoom >= 3}><Icon name="plus" size={16} /></button>
+      <button class="btn icon ghost" title={t("viewer.zoomOut")} onclick={() => setZoom(zoom - 0.2)} disabled={zoom <= 0.4}><Icon name="minus" size={16} /></button>
+      <button class="btn sm ghost zoom" title={t("viewer.fit")} onclick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+      <button class="btn icon ghost" title={t("viewer.zoomIn")} onclick={() => setZoom(zoom + 0.2)} disabled={zoom >= 3}><Icon name="plus" size={16} /></button>
     </div>
     <div class="actions">
       {#if job.status === "ready"}
-        <button class="btn sm primary" onclick={() => requestOcr(job.id)}><Icon name="scan" size={14} /> Reconocer texto</button>
+        <button class="btn sm primary" onclick={() => requestOcr(job.id)}><Icon name="scan" size={14} /> {t("common.recognizeText")}</button>
       {:else if isActive(job) || job.status === "queued"}
-        <span class="pill accent">{job.status === "queued" ? "En cola" : `Reconociendo ${job.current}/${job.total || "…"}`}</span>
+        <span class="pill accent">{job.status === "queued" ? t("ocr.status.queued") : t("ocr.status.ocrN", { current: job.current, total: job.total || "…" })}</span>
       {/if}
-      <button class="btn sm" onclick={onpages}><Icon name="layers" size={14} /> Páginas</button>
-      <button class="btn sm ghost" onclick={openOutside} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
-      <button class="btn icon ghost" onclick={onclose} aria-label="Cerrar (Esc)" title="Cerrar (Esc)"><Icon name="x" size={17} /></button>
+      <button class="btn sm" onclick={onpages}><Icon name="layers" size={14} /> {t("common.pages")}</button>
+      <button class="btn sm ghost" onclick={openOutside} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
+      <button class="btn icon ghost" onclick={onclose} aria-label={t("viewer.close")} title={t("viewer.close")}><Icon name="x" size={17} /></button>
     </div>
   </div>
 
@@ -215,9 +216,9 @@
     {#if !total}
       <div class="loading">
         {#if job.pages === 0}
-          <Icon name="alert" size={18} /> No se pudo leer el archivo
+          <Icon name="alert" size={18} /> {t("viewer.readFailed")}
         {:else}
-          <span class="spin"><Icon name="loader" size={18} /></span> Abriendo…
+          <span class="spin"><Icon name="loader" size={18} /></span> {t("viewer.opening")}
         {/if}
       </div>
     {:else}
@@ -225,7 +226,7 @@
         {#each visible as i (i)}
           <div class="page" class:ocr={ocrPage === i} style="top: {tops[i]}px; left: {(contentW - widths[i]) / 2}px; width: {widths[i]}px; height: {heights[i]}px">
             {#if imgs[i]}
-              <img src={imgs[i].url} alt="Página {i + 1}" draggable="false" />
+              <img src={imgs[i].url} alt={t("page.n", { n: i + 1 })} draggable="false" />
             {:else}
               <span class="spin"><Icon name="loader" size={18} /></span>
             {/if}

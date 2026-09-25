@@ -5,6 +5,7 @@
   import { addFiles, app, cancelJob, clearFinished, isActive, pendingOcr, queuedCount, removeJob, requestOcr, retryJob, startQueue, stopQueue, toast, type Job } from "../lib/state.svelte";
   import { fmtBytes, fmtSecs } from "../lib/format";
   import Icon from "./Icon.svelte";
+  import { locale, t, tn } from "../lib/i18n.svelte";
   import IurePicker from "./IurePicker.svelte";
   import PagesView from "./PagesView.svelte";
   import Viewer from "./Viewer.svelte";
@@ -15,7 +16,7 @@
   let preview = $state<{ job: Job; text: string } | null>(null);
 
   async function pickFiles() {
-    const sel = await open({ multiple: true, filters: [{ name: "PDF e imágenes", extensions: app.sys?.supportedExtensions ?? ["pdf"] }] });
+    const sel = await open({ multiple: true, filters: [{ name: t("ocr.filterName"), extensions: app.sys?.supportedExtensions ?? ["pdf"] }] });
     if (!sel) return;
     await addFiles(Array.isArray(sel) ? sel : [sel]);
   }
@@ -23,14 +24,14 @@
     try {
       await openPath(path);
     } catch (e) {
-      toast(`No se pudo abrir: ${e}`, "error");
+      toast(t("common.openFailed", { error: String(e) }), "error");
     }
   }
   async function reveal(path: string) {
     try {
       await api.revealPath(path);
     } catch (e) {
-      toast(`No se pudo mostrar en la carpeta: ${e}`, "error");
+      toast(t("ocr.revealFailed", { error: String(e) }), "error");
     }
   }
   async function showText(job: Job) {
@@ -43,7 +44,7 @@
   }
   async function editWith(path: string) {
     if (!app.onlyoffice?.installed) {
-      toast("OnlyOffice no está instalado: se abre la página de descarga", "info");
+      toast(t("ocr.onlyofficeMissingToast"), "info");
       const { openUrl } = await import("@tauri-apps/plugin-opener");
       await openUrl(app.onlyoffice?.downloadUrl ?? "https://www.onlyoffice.com/es/download-desktop.aspx");
       return;
@@ -56,14 +57,14 @@
   }
   function statusLabel(j: Job): string {
     switch (j.status) {
-      case "queued": return "En cola";
-      case "render": return j.total ? `Leyendo páginas ${j.current}/${j.total}` : "Leyendo páginas…";
-      case "ocr": return j.total ? `Reconociendo ${j.current}/${j.total}` : "Reconociendo texto…";
-      case "done": return "Listo";
-      case "ready": return "Sin OCR";
-      case "skipped": return "Ya tenía texto";
-      case "error": return "Error";
-      case "cancelled": return "Cancelado";
+      case "queued": return t("ocr.status.queued");
+      case "render": return j.total ? t("ocr.status.renderN", { current: j.current, total: j.total }) : t("ocr.status.render");
+      case "ocr": return j.total ? t("ocr.status.ocrN", { current: j.current, total: j.total }) : t("ocr.status.ocr");
+      case "done": return t("ocr.status.done");
+      case "ready": return t("ocr.status.ready");
+      case "skipped": return t("ocr.status.skipped");
+      case "error": return t("ocr.status.error");
+      case "cancelled": return t("ocr.status.cancelled");
     }
   }
   function pillClass(j: Job): string {
@@ -79,21 +80,21 @@
 
 <header class="top">
   <div>
-    <h1>Documentos</h1>
-    <p class="hint">Abre PDF y fotos de documentos para verlos, editar sus páginas o convertirlos en PDF con texto buscable, en este equipo.</p>
+    <h1>{t("common.documents")}</h1>
+    <p class="hint">{t("ocr.hint")}</p>
   </div>
   <div class="actions">
-    <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Abrir archivos</button>
+    <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> {t("ocr.openFiles")}</button>
     {#if pending > 1}
-      <button class="btn" onclick={recognizeAll}><Icon name="scan" size={15} /> Reconocer texto de {pending}</button>
+      <button class="btn" onclick={recognizeAll}><Icon name="scan" size={15} /> {t("ocr.recognizeAll", { n: pending })}</button>
     {/if}
     {#if app.running}
-      <button class="btn" onclick={stopQueue}><Icon name="stop" size={15} /> Detener al terminar el actual</button>
+      <button class="btn" onclick={stopQueue}><Icon name="stop" size={15} /> {t("ocr.stopAfterCurrent")}</button>
     {:else if queuedCount() > 0}
-      <button class="btn" onclick={startQueue}><Icon name="play" size={15} /> Procesar {queuedCount()}</button>
+      <button class="btn" onclick={startQueue}><Icon name="play" size={15} /> {t("ocr.process", { n: queuedCount() })}</button>
     {/if}
     {#if finished > 0}
-      <button class="btn ghost" onclick={clearFinished}><Icon name="trash" size={15} /> Limpiar terminados</button>
+      <button class="btn ghost" onclick={clearFinished}><Icon name="trash" size={15} /> {t("ocr.clearFinished")}</button>
     {/if}
   </div>
 </header>
@@ -103,7 +104,7 @@
     <div class="card warn-card">
       <Icon name="alert" size={18} />
       <div>
-        <strong>Tesseract no está disponible.</strong>
+        <strong>{t("ocr.tesseractUnavailable")}</strong>
         <p class="hint">{app.sys?.tesseractError}</p>
       </div>
     </div>
@@ -111,9 +112,9 @@
   {#if app.jobs.length === 0}
     <div class="empty">
       <Icon name="scan" size={40} />
-      <h2>Sin archivos</h2>
-      <p class="hint">Suelta aquí PDF o fotos de documentos. {app.settings?.autoOcr ? "El OCR empieza en cuanto llegan" : "Se abren sin tocarlos; el OCR se lanza con «Reconocer texto»"} y su resultado se guarda junto al original con el sufijo «{app.settings?.suffix}».</p>
-      <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> Abrir archivos</button>
+      <h2>{t("ocr.emptyTitle")}</h2>
+      <p class="hint">{t("ocr.emptyHint", { mode: app.settings?.autoOcr ? t("ocr.emptyAuto") : t("ocr.emptyManual"), suffix: app.settings?.suffix ?? "" })}</p>
+      <button class="btn primary" onclick={pickFiles}><Icon name="plus" size={16} /> {t("ocr.openFiles")}</button>
     </div>
   {:else}
     <div class="jobs">
@@ -123,24 +124,24 @@
             <Icon name={job.path.toLowerCase().endsWith(".pdf") ? "doc" : "image"} size={18} />
             <div class="job-title">
               <div class="name" title={job.path}>{job.name}</div>
-              <div class="hint">{fmtBytes(job.sizeBytes)}{job.result && !job.result.skipped ? ` · ${job.result.pages} página(s) · ${job.result.chars.toLocaleString("es")} caracteres · ${fmtSecs(job.result.elapsedSecs)}` : ""}{job.force ? " · forzado" : ""}</div>
+              <div class="hint">{fmtBytes(job.sizeBytes)}{job.result && !job.result.skipped ? ` · ${tn("pages.count", job.result.pages)} · ${t("ocr.chars", { n: job.result.chars.toLocaleString(locale()) })} · ${fmtSecs(job.result.elapsedSecs)}` : ""}{job.force ? ` · ${t("ocr.forced")}` : ""}</div>
             </div>
             <span class="pill {pillClass(job)}">{#if isActive(job)}<span class="spin"><Icon name="loader" size={12} /></span>{/if}{statusLabel(job)}</span>
             {#if isActive(job) || job.status === "queued"}
-              <button class="btn icon ghost" title="Cancelar" onclick={() => cancelJob(job.id)}><Icon name="x" size={15} /></button>
+              <button class="btn icon ghost" title={t("common.cancel")} onclick={() => cancelJob(job.id)}><Icon name="x" size={15} /></button>
             {:else}
-              <button class="btn icon ghost" title="Quitar de la lista" onclick={() => removeJob(job.id)}><Icon name="trash" size={15} /></button>
+              <button class="btn icon ghost" title={t("ocr.removeFromList")} onclick={() => removeJob(job.id)}><Icon name="trash" size={15} /></button>
             {/if}
           </div>
           {#if job.pages}
             <div class="strip">
               {#each Array.from({ length: Math.min(job.pages, 6) }, (_, i) => i) as i (i)}
-                <button class="thumb" class:current={isActive(job) && job.total && job.current === i + 1} onclick={() => (viewing = { job, page: i })} title="Ver la página {i + 1}">
+                <button class="thumb" class:current={isActive(job) && job.total && job.current === i + 1} onclick={() => (viewing = { job, page: i })} title={t("ocr.viewPage", { n: i + 1 })}>
                   {#if job.thumbs[i]}<img src={job.thumbs[i]} alt="" />{:else}<span class="ph"></span>{/if}
                 </button>
               {/each}
               {#if job.pages > 6}<button class="more" onclick={() => (viewing = { job, page: 6 })}>+{job.pages - 6}</button>{/if}
-              <button class="strip-label" onclick={() => (pagesOf = job)} title="Ver todas las páginas en cuadrícula"><Icon name="layers" size={13} /> {job.pages} página{job.pages === 1 ? "" : "s"}{isActive(job) && job.total ? ` · en la ${job.current}` : ""}</button>
+              <button class="strip-label" onclick={() => (pagesOf = job)} title={t("ocr.gridTitle")}><Icon name="layers" size={13} /> {tn("pages.count", job.pages)}{isActive(job) && job.total ? t("ocr.atPage", { n: job.current }) : ""}</button>
             </div>
           {/if}
           {#if isActive(job)}
@@ -148,49 +149,49 @@
           {/if}
           {#if job.error && job.status === "error"}
             <p class="err">{job.error}</p>
-            <div class="row"><button class="btn sm" onclick={() => retryJob(job.id)}><Icon name="refresh" size={14} /> Reintentar</button></div>
+            <div class="row"><button class="btn sm" onclick={() => retryJob(job.id)}><Icon name="refresh" size={14} /> {t("ocr.retry")}</button></div>
           {:else if job.status === "cancelled"}
-            <div class="row"><button class="btn sm" onclick={() => retryJob(job.id)}><Icon name="refresh" size={14} /> Volver a la cola</button></div>
+            <div class="row"><button class="btn sm" onclick={() => retryJob(job.id)}><Icon name="refresh" size={14} /> {t("ocr.requeue")}</button></div>
           {:else if job.status === "skipped"}
             <p class="hint">{job.result?.note}</p>
             <div class="row">
-              <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> Forzar OCR de todas formas</button>
-              <button class="btn sm ghost" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
-              <button class="btn sm ghost" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
+              <button class="btn sm" onclick={() => retryJob(job.id, true)}><Icon name="scan" size={14} /> {t("ocr.forceOcr")}</button>
+              <button class="btn sm ghost" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> {t("common.view")}</button>
+              <button class="btn sm ghost" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> {t("common.pages")}</button>
             </div>
           {:else if job.status === "ready"}
             <div class="row">
-              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
-              <button class="btn sm" onclick={() => requestOcr(job.id)}><Icon name="scan" size={14} /> Reconocer texto</button>
-              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
-              <button class="btn sm ghost" onclick={() => openFile(job.path)} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
-              <button class="btn sm ghost" onclick={() => reveal(job.path)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
+              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> {t("common.view")}</button>
+              <button class="btn sm" onclick={() => requestOcr(job.id)}><Icon name="scan" size={14} /> {t("common.recognizeText")}</button>
+              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> {t("common.pages")}</button>
+              <button class="btn sm ghost" onclick={() => openFile(job.path)} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
+              <button class="btn sm ghost" onclick={() => reveal(job.path)}><Icon name="folder" size={14} /> {t("common.showInFolder")}</button>
               <span class="grow"></span>
               {#if job.upload}
-                <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> Subiendo…</span>
+                <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> {t("common.uploading")}</span>
               {:else if job.saved}
-                <span class="pill success"><Icon name="check" size={12} stroke={3} /> En {job.saved.target}</span>
+                <span class="pill success"><Icon name="check" size={12} stroke={3} /> {t("ocr.savedIn", { target: job.saved.target })}</span>
               {:else}
-                <button class="btn sm" onclick={() => (picking = job)} disabled={!app.settings?.iureDomain}><Icon name="cloud" size={14} /> Guardar en Iurefficient</button>
+                <button class="btn sm" onclick={() => (picking = job)} disabled={!app.settings?.iureDomain}><Icon name="cloud" size={14} /> {t("common.saveToIure")}</button>
               {/if}
             </div>
           {:else if job.status === "done" && job.result}
             {#if job.result.note}<p class="hint warn-text">{job.result.note}</p>{/if}
             <div class="row">
-              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> Ver</button>
-              <button class="btn sm ghost" onclick={() => openFile(job.result!.pdfPath!)} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
-              <button class="btn sm" onclick={() => showText(job)}><Icon name="text" size={14} /> Ver texto</button>
-              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> Páginas</button>
-              <button class="btn sm" onclick={() => reveal(job.result!.pdfPath!)}><Icon name="folder" size={14} /> Mostrar en carpeta</button>
-              <button class="btn sm" onclick={() => editWith(job.result!.pdfPath!)} title={app.onlyoffice?.installed ? "Abrir con OnlyOffice" : "OnlyOffice no está instalado"}><Icon name="edit" size={14} /> Editar con OnlyOffice</button>
+              <button class="btn sm primary" onclick={() => (viewing = { job, page: 0 })}><Icon name="eye" size={14} /> {t("common.view")}</button>
+              <button class="btn sm ghost" onclick={() => openFile(job.result!.pdfPath!)} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
+              <button class="btn sm" onclick={() => showText(job)}><Icon name="text" size={14} /> {t("ocr.viewText")}</button>
+              <button class="btn sm" onclick={() => (pagesOf = job)}><Icon name="layers" size={14} /> {t("common.pages")}</button>
+              <button class="btn sm" onclick={() => reveal(job.result!.pdfPath!)}><Icon name="folder" size={14} /> {t("common.showInFolder")}</button>
+              <button class="btn sm" onclick={() => editWith(job.result!.pdfPath!)} title={app.onlyoffice?.installed ? t("ocr.openWithOnlyoffice") : t("ocr.onlyofficeMissing")}><Icon name="edit" size={14} /> {t("ocr.editWithOnlyoffice")}</button>
               <span class="grow"></span>
               {#if job.upload}
-                <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> Subiendo {job.upload.fileName} ({job.upload.index + 1}/{job.upload.totalFiles})</span>
+                <span class="pill accent"><span class="spin"><Icon name="loader" size={12} /></span> {t("ocr.uploadingFile", { file: job.upload.fileName, i: job.upload.index + 1, n: job.upload.totalFiles })}</span>
               {:else if job.saved}
-                <span class="pill success" title={`Guardado ${new Date(job.saved.at).toLocaleTimeString("es")}`}><Icon name="check" size={12} stroke={3} /> En {job.saved.target}</span>
-                <button class="btn sm ghost" onclick={() => (picking = job)}><Icon name="upload" size={14} /> Otra vez</button>
+                <span class="pill success" title={t("ocr.savedAt", { time: new Date(job.saved.at).toLocaleTimeString(locale()) })}><Icon name="check" size={12} stroke={3} /> {t("ocr.savedIn", { target: job.saved.target })}</span>
+                <button class="btn sm ghost" onclick={() => (picking = job)}><Icon name="upload" size={14} /> {t("ocr.again")}</button>
               {:else}
-                <button class="btn sm" onclick={() => (picking = job)} disabled={!app.settings?.iureDomain}><Icon name="cloud" size={14} /> Guardar en Iurefficient</button>
+                <button class="btn sm" onclick={() => (picking = job)} disabled={!app.settings?.iureDomain}><Icon name="cloud" size={14} /> {t("common.saveToIure")}</button>
               {/if}
             </div>
           {/if}
@@ -214,12 +215,12 @@
     <div class="modal card" role="dialog" aria-modal="true">
       <div class="head">
         <h2><Icon name="text" size={17} /> {preview.job.name}</h2>
-        <button class="btn icon ghost" onclick={() => (preview = null)} aria-label="Cerrar"><Icon name="x" size={16} /></button>
+        <button class="btn icon ghost" onclick={() => (preview = null)} aria-label={t("common.close")}><Icon name="x" size={16} /></button>
       </div>
       <pre class="text scroll">{preview.text}</pre>
       <div class="foot-row">
-        <button class="btn sm" onclick={() => navigator.clipboard.writeText(preview!.text).then(() => toast("Texto copiado", "success"))}><Icon name="copy" size={14} /> Copiar</button>
-        <button class="btn sm ghost" onclick={() => openFile(preview!.job.result!.txtPath!)}><Icon name="external" size={14} /> Abrir .txt</button>
+        <button class="btn sm" onclick={() => navigator.clipboard.writeText(preview!.text).then(() => toast(t("ocr.textCopied"), "success"))}><Icon name="copy" size={14} /> {t("ocr.copy")}</button>
+        <button class="btn sm ghost" onclick={() => openFile(preview!.job.result!.txtPath!)}><Icon name="external" size={14} /> {t("ocr.openTxt")}</button>
       </div>
     </div>
   </div>

@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { addReadyFile, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { t, tn } from "../lib/i18n.svelte";
 
   let { job, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number) => void } = $props();
 
@@ -112,7 +113,7 @@
     try {
       const r = await api.pdfEditPages(sourcePdf, op, pages, degrees);
       const made = addReadyFile(r.path);
-      toast(`Listo: ${made.name} (${r.pages} página${r.pages === 1 ? "" : "s"})`, "success", 6000);
+      toast(t("pagesView.done", { name: made.name, pages: tn("pages.count", r.pages) }), "success", 6000);
       onclose();
     } catch (e) {
       toast(String(e), "error", 9000);
@@ -124,39 +125,39 @@
     try {
       await openPath(sourcePdf);
     } catch (e) {
-      toast(`No se pudo abrir: ${e}`, "error");
+      toast(t("common.openFailed", { error: String(e) }), "error");
     }
   }
 </script>
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && !working && onclose()}>
-  <div class="modal card" role="dialog" aria-modal="true" aria-label="Páginas">
+  <div class="modal card" role="dialog" aria-modal="true" aria-label={t("common.pages")}>
     <div class="head">
-      <h2><Icon name="layers" size={17} /> {job.name} <span class="hint">· {total} página{total === 1 ? "" : "s"}{job.result?.pdfPath ? " · con OCR" : ""}</span></h2>
-      <button class="btn icon ghost" onclick={onclose} disabled={!!working} aria-label="Cerrar"><Icon name="x" size={16} /></button>
+      <h2><Icon name="layers" size={17} /> {job.name} <span class="hint">· {tn("pages.count", total)}{job.result?.pdfPath ? ` · ${t("common.withOcr")}` : ""}</span></h2>
+      <button class="btn icon ghost" onclick={onclose} disabled={!!working} aria-label={t("common.close")}><Icon name="x" size={16} /></button>
     </div>
     {#if isPdf}
       <div class="tools">
-        <span class="hint">{selected.size ? `${selected.size} seleccionada${selected.size === 1 ? "" : "s"}` : "Marca páginas para editarlas"}</span>
-        <button class="btn sm ghost" onclick={selectAll}>Todas</button>
-        <button class="btn sm ghost" onclick={selectNone} disabled={!selected.size}>Ninguna</button>
-        <button class="btn sm ghost" onclick={invert}>Invertir</button>
+        <span class="hint">{selected.size ? tn("pagesView.selected", selected.size) : t("pagesView.markHint")}</span>
+        <button class="btn sm ghost" onclick={selectAll}>{t("pagesView.all")}</button>
+        <button class="btn sm ghost" onclick={selectNone} disabled={!selected.size}>{t("pagesView.none")}</button>
+        <button class="btn sm ghost" onclick={invert}>{t("pagesView.invert")}</button>
         <span class="grow"></span>
         {#if reordered}
-          <span class="pill accent">Orden nuevo</span>
-          <button class="btn sm ghost" onclick={resetOrder} disabled={!!working}>Deshacer</button>
-          <button class="btn sm primary" onclick={() => edit("reorder")} disabled={!!working} title="Nuevo PDF con las páginas en este orden"><Icon name="check" size={14} /> Guardar orden</button>
+          <span class="pill accent">{t("pagesView.newOrder")}</span>
+          <button class="btn sm ghost" onclick={resetOrder} disabled={!!working}>{t("pagesView.undo")}</button>
+          <button class="btn sm primary" onclick={() => edit("reorder")} disabled={!!working} title={t("pagesView.saveOrderTitle")}><Icon name="check" size={14} /> {t("pagesView.saveOrder")}</button>
         {:else}
-        <button class="btn sm ghost" onclick={() => moveSelected("start")} disabled={!selected.size || !!working} title="Mover las seleccionadas al principio">Al principio</button>
-        <button class="btn sm ghost" onclick={() => moveSelected("end")} disabled={!selected.size || !!working} title="Mover las seleccionadas al final">Al final</button>
-        <button class="btn sm ghost" onclick={reverseOrder} disabled={total < 2 || !!working} title="Invertir el orden de todas las páginas">Orden inverso</button>
-        <button class="btn sm" onclick={() => edit("rotate", 90)} disabled={!selected.size || !!working} title="Girar 90° a la derecha"><Icon name="refresh" size={14} /> Rotar</button>
-        <button class="btn sm" onclick={() => edit("keep")} disabled={!selected.size || selected.size === total || !!working} title="Nuevo PDF sólo con las seleccionadas"><Icon name="copy" size={14} /> Sólo estas</button>
-        <button class="btn sm danger" onclick={() => edit("delete")} disabled={!selected.size || selected.size === total || !!working} title="Nuevo PDF sin las seleccionadas"><Icon name="trash" size={14} /> Quitar</button>
+        <button class="btn sm ghost" onclick={() => moveSelected("start")} disabled={!selected.size || !!working} title={t("pagesView.toStartTitle")}>{t("pagesView.toStart")}</button>
+        <button class="btn sm ghost" onclick={() => moveSelected("end")} disabled={!selected.size || !!working} title={t("pagesView.toEndTitle")}>{t("pagesView.toEnd")}</button>
+        <button class="btn sm ghost" onclick={reverseOrder} disabled={total < 2 || !!working} title={t("pagesView.reverseTitle")}>{t("pagesView.reverse")}</button>
+        <button class="btn sm" onclick={() => edit("rotate", 90)} disabled={!selected.size || !!working} title={t("pagesView.rotateTitle")}><Icon name="refresh" size={14} /> {t("pagesView.rotate")}</button>
+        <button class="btn sm" onclick={() => edit("keep")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.keepTitle")}><Icon name="copy" size={14} /> {t("pagesView.keep")}</button>
+        <button class="btn sm danger" onclick={() => edit("delete")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.deleteTitle")}><Icon name="trash" size={14} /> {t("pagesView.delete")}</button>
         {/if}
       </div>
     {/if}
-    <div class="grid scroll" role="listbox" aria-label="Páginas" aria-multiselectable="true" tabindex="-1" class:dragging={!!drag} bind:this={grid} {onpointermove} {onpointerup} onpointercancel={() => ((press = null), (drag = null))}>
+    <div class="grid scroll" role="listbox" aria-label={t("common.pages")} aria-multiselectable="true" tabindex="-1" class:dragging={!!drag} bind:this={grid} {onpointermove} {onpointerup} onpointercancel={() => ((press = null), (drag = null))}>
       {#each order as i, pos (i)}
         <button
           class="page"
@@ -171,28 +172,28 @@
           onpointerdown={(e) => onpointerdown(e, i)}
           onclick={() => !isPdf && onview?.(i)}
           ondblclick={() => onview?.(i)}
-          title="Página {i + 1} · arrastra para moverla, doble clic para verla"
+          title={t("pagesView.pageTitle", { n: i + 1 })}
         >
           {#if job.thumbs[i]}
-            <img src={job.thumbs[i]} alt="Página {i + 1}" loading="lazy" />
+            <img src={job.thumbs[i]} alt={t("page.n", { n: i + 1 })} loading="lazy" />
           {:else}
             <div class="ph"><span class="spin"><Icon name="loader" size={16} /></span></div>
           {/if}
           <span class="num">{i + 1}{#if reordered && pos !== i}<span class="moved"> → {pos + 1}</span>{/if}</span>
           {#if selected.has(i)}<span class="tick"><Icon name="check" size={12} stroke={3} /></span>{/if}
-          {#if current === i + 1}<span class="cur">reconociendo…</span>{/if}
+          {#if current === i + 1}<span class="cur">{t("pagesView.recognizing")}</span>{/if}
         </button>
       {/each}
       {#if !total}
-        <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> Contando páginas…</div>
+        <div class="empty"><span class="spin"><Icon name="loader" size={16} /></span> {t("pagesView.counting")}</div>
       {/if}
     </div>
     <div class="foot-row">
-      <span class="hint">{working ? "Escribiendo el PDF nuevo…" : allLoaded ? "Arrastra las páginas para reordenarlas. Las ediciones crean un PDF nuevo; el original no se toca." : "Cargando miniaturas…"}</span>
+      <span class="hint">{working ? t("pagesView.writing") : allLoaded ? t("pagesView.dragHint") : t("pagesView.loadingThumbs")}</span>
       <span class="grow"></span>
-      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0)}><Icon name="eye" size={14} /> Ver</button>{/if}
-      <button class="btn sm ghost" onclick={openPdf} title="Abrir con la aplicación del sistema"><Icon name="external" size={14} /> Abrir fuera</button>
-      <button class="btn" onclick={onclose} disabled={!!working}>Cerrar</button>
+      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0)}><Icon name="eye" size={14} /> {t("common.view")}</button>{/if}
+      <button class="btn sm ghost" onclick={openPdf} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
+      <button class="btn" onclick={onclose} disabled={!!working}>{t("common.close")}</button>
     </div>
   </div>
 </div>
