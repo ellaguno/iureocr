@@ -11,6 +11,20 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+## [0.5.0] — 2026-09-28
+
+### Añadido
+
+- **Servidor MCP local (`IureOCR --mcp`).** Claude Desktop, Claude Code o Copilot en
+  VS Code pueden hacer OCR, leer el texto de un PDF por páginas, ver una página como
+  imagen y editar páginas en este equipo, sin ventana y sin llave de OpenRouter: el
+  modelo del cliente hace el resto. `IureOCR --mcp-config` imprime la configuración
+  que hay que pegar. Ver «Uso desde Claude, Copilot y otros agentes» en el README.
+- **Ajustes → Asistentes de IA.** Detecta qué asistentes hay y conecta cada uno:
+  Microsoft 365 Copilot con un token de agente de la instancia (URL, token y pasos para
+  Copilot Studio; se revoca desde ahí), GitHub Copilot en VS Code con su enlace de
+  instalación y Claude Desktop escribiendo su configuración.
+
 ## [0.4.0] — 2026-09-25
 
 ### Añadido

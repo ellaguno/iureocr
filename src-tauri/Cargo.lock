@@ -2451,8 +2451,8 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "iurefficient-connect"
-version = "0.6.0"
-source = "git+https://github.com/ellaguno/iurefficient-connect?tag=v0.6.0#2cc566335c025c5b338cb578bb4c5494db125f21"
+version = "0.7.0"
+source = "git+https://github.com/ellaguno/iurefficient-connect?tag=v0.7.0#013b994da7622f3609fdbcc473533fb0544aa494"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2473,7 +2473,7 @@ dependencies = [
 
 [[package]]
 name = "iureocr"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4680,6 +4680,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap 2.14.2",
  "itoa",
  "memchr",
  "serde",

@@ -2,10 +2,10 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { onMount } from "svelte";
-  import { api } from "../lib/api";
+  import { api, type CopilotStatus, type CopilotToken } from "../lib/api";
   import { app, refreshApps, refreshIureSession, refreshSystem, saveSettings, toast } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
-  import { ocrLangName, t } from "../lib/i18n.svelte";
+  import { locale, ocrLangName, t, tn } from "../lib/i18n.svelte";
 
   let s = $derived(app.settings!);
   let loginPassword = $state("");
@@ -16,6 +16,88 @@
   let iureTesting = $state(false);
   let iureResult = $state<{ ok: boolean; text: string } | null>(null);
   let checkingUpdates = $state(false);
+  let claudeBusy = $state(false);
+  let copilot = $state<CopilotStatus | null>(null);
+  let copilotBusy = $state(false);
+  let newToken = $state<CopilotToken | null>(null);
+
+  async function claudeDesktop(connect: boolean) {
+    claudeBusy = true;
+    try {
+      const st = connect ? await api.claudeDesktopConnect() : await api.claudeDesktopDisconnect();
+      if (app.agents) app.agents.claudeDesktop = st;
+      toast(t(connect ? "settings.claudeConnectedToast" : "settings.claudeDisconnectedToast"), "success", 8000);
+    } catch (e) {
+      toast(String(e), "error", 10000);
+    } finally {
+      claudeBusy = false;
+    }
+  }
+
+  async function vscodeConnect() {
+    try {
+      await api.vscodeConnect();
+      toast(t("settings.vscodeOpenedToast"), "info", 10000);
+    } catch (e) {
+      toast(String(e), "error", 10000);
+    }
+  }
+
+  async function refreshAgents() {
+    try {
+      app.agents = await api.agentsStatus();
+    } catch {
+      /* sin detección */
+    }
+    try {
+      copilot = await api.copilotStatus();
+    } catch (e) {
+      copilot = { signedIn: false, endpointUrl: null, manageUrl: null, tokens: [], error: String(e) };
+    }
+  }
+
+  async function copilotCreate() {
+    copilotBusy = true;
+    try {
+      newToken = await api.copilotCreateToken();
+      copilot = await api.copilotStatus();
+    } catch (e) {
+      toast(String(e), "error", 10000);
+    } finally {
+      copilotBusy = false;
+    }
+  }
+
+  async function copilotRevoke(id: string) {
+    try {
+      await api.copilotRevokeToken(id);
+      if (newToken?.info.id === id) newToken = null;
+      copilot = await api.copilotStatus();
+      toast(t("settings.copilotRevokedToast"), "success");
+    } catch (e) {
+      toast(String(e), "error", 8000);
+    }
+  }
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text).then(() => toast(t("settings.copied"), "success"));
+  }
+
+  function fmtDate(iso: string | null): string {
+    return iso ? new Date(iso).toLocaleDateString(locale(), { day: "numeric", month: "short", year: "numeric" }) : "";
+  }
+
+  // Al volver a la ventana (tras aceptar en VS Code o reiniciar Claude) y al iniciar o
+  // cerrar sesión, se vuelve a mirar el estado.
+  $effect(() => {
+    void app.iureSession?.loggedIn;
+    void refreshAgents();
+  });
+  onMount(() => {
+    const onFocus = () => void refreshAgents();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  });
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   function debounced(patch: Parameters<typeof saveSettings>[0]) {
@@ -270,6 +352,120 @@
   </section>
 
   <section class="card">
+    <h2><Icon name="sparkles" size={17} /> {t("settings.agents")}</h2>
+    <p class="hint">{t("settings.agentsHint")}</p>
+    <div class="apps">
+      <!-- Microsoft 365 Copilot: no usa programas del equipo; consulta la instancia -->
+      <div class="app-row">
+        <div class="app-info">
+          <strong>Microsoft 365 Copilot</strong>
+          <p class="hint">{t("settings.copilotHint")}</p>
+          {#if copilot && !copilot.signedIn}
+            <p class="hint">{t("settings.copilotSignIn")}</p>
+          {:else if copilot?.error}
+            <p class="hint errmsg">{copilot.error}</p>
+          {/if}
+          {#each copilot?.tokens ?? [] as tok (tok.id)}
+            <p class="hint token-line">
+              <code>{tok.tokenPrefix}…</code>
+              {t("settings.copilotTokenCreated", { date: fmtDate(tok.createdAt) })} · {tn("settings.copilotCalls", tok.callCount)}
+              <button class="btn sm ghost" onclick={() => copilotRevoke(tok.id)}>{t("settings.copilotRevoke")}</button>
+            </p>
+          {/each}
+        </div>
+        {#if copilot?.signedIn && !copilot.error}
+          {#if copilot.tokens.length}
+            <span class="pill success"><Icon name="check" size={12} stroke={3} /> {t("settings.copilotReady")}</span>
+          {/if}
+          <button class="btn sm" class:primary={!copilot.tokens.length} onclick={copilotCreate} disabled={copilotBusy}>
+            {#if copilotBusy}<span class="spin"><Icon name="loader" size={14} /></span>{:else}<Icon name="key" size={14} />{/if}
+            {t(copilot.tokens.length ? "settings.copilotNewToken" : "settings.copilotConnect")}
+          </button>
+        {/if}
+      </div>
+      {#if newToken}
+        <div class="token-box">
+          <p><strong>{t("settings.copilotStepsTitle")}</strong></p>
+          <ol>
+            <li>{t("settings.copilotStep1")}</li>
+            <li>
+              {t("settings.copilotStep2")}
+              <div class="copyrow"><code>{newToken.endpointUrl}</code><button class="btn sm ghost" onclick={() => copy(newToken!.endpointUrl)}><Icon name="copy" size={14} /> {t("settings.copy")}</button></div>
+            </li>
+            <li>{t("settings.copilotStep3")} <code>X-MCP-Token</code></li>
+            <li>
+              {t("settings.copilotStep4")}
+              <div class="copyrow"><code>{newToken.token}</code><button class="btn sm ghost" onclick={() => copy(newToken!.token)}><Icon name="copy" size={14} /> {t("settings.copy")}</button></div>
+            </li>
+          </ol>
+          <p class="hint">{t("settings.copilotOnce")}</p>
+          <p class="hint">{t("settings.copilotFindOcr")}</p>
+          <div class="row">
+            {#if copilot?.manageUrl}<button class="btn sm ghost" onclick={() => openUrl(copilot!.manageUrl!)}><Icon name="external" size={14} /> {t("settings.copilotManage")}</button>{/if}
+            <button class="btn sm primary" onclick={() => (newToken = null)}>{t("settings.copilotDone")}</button>
+          </div>
+        </div>
+      {/if}
+
+      <!-- GitHub Copilot en VS Code: servidor local; VS Code pide confirmación -->
+      <div class="app-row">
+        <div class="app-info">
+          <strong>GitHub Copilot (VS Code)</strong>
+          {#if !app.agents?.vscode.installed}
+            <p class="hint">{t("settings.vscodeMissing")}</p>
+          {:else if app.agents.vscode.connected}
+            <p class="hint">{t("settings.localConnected")}</p>
+          {:else if app.agents.vscode.stale}
+            <p class="hint">{t("settings.localStale")}</p>
+          {:else}
+            <p class="hint">{t("settings.vscodeNotConnected")}</p>
+          {/if}
+          {#if app.agents?.vscode.installed && app.agents.vscode.copilot === false}
+            <p class="hint">{t("settings.vscodeNoCopilot")}</p>
+          {/if}
+        </div>
+        {#if !app.agents?.vscode.installed}
+          <button class="btn sm" onclick={() => openUrl(app.agents?.vscode.downloadUrl ?? "https://code.visualstudio.com/download")}><Icon name="download" size={14} /> {t("common.download")}</button>
+        {:else if app.agents.vscode.connected}
+          <span class="pill success"><Icon name="check" size={12} stroke={3} /> {t("settings.connectedPill")}</span>
+        {:else}
+          {#if app.agents.vscode.stale}<span class="pill warn">{t("settings.stalePill")}</span>{/if}
+          <button class="btn sm primary" onclick={vscodeConnect}><Icon name="zap" size={14} /> {t(app.agents.vscode.stale ? "settings.reconnect" : "settings.connect2")}</button>
+        {/if}
+      </div>
+
+      <!-- Claude Desktop: servidor local; se escribe su configuración -->
+      <div class="app-row">
+        <div class="app-info">
+          <strong>Claude Desktop</strong>
+          {#if !app.agents?.claudeDesktop.installed}
+            <p class="hint">{t("settings.claudeMissing")}</p>
+          {:else if app.agents.claudeDesktop.connected}
+            <p class="hint">{t("settings.localConnected")}</p>
+          {:else if app.agents.claudeDesktop.stale}
+            <p class="hint">{t("settings.localStale")}</p>
+          {:else}
+            <p class="hint">{t("settings.claudeNotConnected")}</p>
+          {/if}
+        </div>
+        {#if !app.agents?.claudeDesktop.installed}
+          <button class="btn sm" onclick={() => openUrl(app.agents?.claudeDesktop.downloadUrl ?? "https://claude.ai/download")}><Icon name="download" size={14} /> {t("common.download")}</button>
+        {:else if app.agents.claudeDesktop.connected}
+          <span class="pill success"><Icon name="check" size={12} stroke={3} /> {t("settings.connectedPill")}</span>
+          <button class="btn sm ghost" onclick={() => claudeDesktop(false)} disabled={claudeBusy}>{t("settings.disconnect")}</button>
+        {:else}
+          {#if app.agents.claudeDesktop.stale}<span class="pill warn">{t("settings.stalePill")}</span>{/if}
+          <button class="btn sm primary" onclick={() => claudeDesktop(true)} disabled={claudeBusy}>
+            {#if claudeBusy}<span class="spin"><Icon name="loader" size={14} /></span>{:else}<Icon name="zap" size={14} />{/if}
+            {t(app.agents.claudeDesktop.stale ? "settings.reconnect" : "settings.connect2")}
+          </button>
+        {/if}
+      </div>
+    </div>
+    <p class="hint">{t("settings.agentsOther")}</p>
+  </section>
+
+  <section class="card">
     <h2><Icon name="settings" size={17} /> {t("settings.application")}</h2>
     <div class="grid2">
       <div class="field">
@@ -316,5 +512,11 @@
   .app-row.me strong { color: var(--accent); }
   .sys { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
   .sys code { font-family: var(--mono); font-size: 12px; user-select: text; }
+  .token-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .token-line code, .copyrow code { font-family: var(--mono); font-size: 12px; user-select: text; }
+  .token-box { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 8px; background: var(--accent-soft); font-size: 13.5px; }
+  .token-box ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+  .copyrow { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-width: 0; }
+  .copyrow code { background: var(--surface); padding: 3px 7px; border-radius: 5px; overflow-wrap: anywhere; min-width: 0; }
   .spin { display: inline-flex; animation: spin 1s linear infinite; }
 </style>

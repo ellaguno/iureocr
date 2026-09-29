@@ -44,6 +44,53 @@ modelo de visión y la lista de documentos pendientes de OCR de la instancia.
 
 Un PDF con texto ya legible no se rasteriza: se avisa y se ofrece forzarlo.
 
+## Uso desde Claude, Copilot y otros agentes (MCP)
+
+`IureOCR --mcp` arranca un servidor [MCP](https://modelcontextprotocol.io) por stdio,
+sin ventana. Así, Claude Desktop, Claude Code, Copilot en VS Code o cualquier cliente
+MCP puede usar el OCR y las herramientas de PDF de este equipo. El OCR corre aquí y
+el modelo del cliente lee el texto y hace el resto, así que no hace falta ninguna
+llave de OpenRouter. Del equipo sólo sale el texto que el agente decide leer.
+
+| Herramienta | Qué hace |
+| --- | --- |
+| `ocr_file` | OCR de un PDF escaneado o una imagen; deja el PDF buscable y el `.txt` junto al original y devuelve el texto |
+| `extract_text` | Lee la capa de texto de un PDF por rango de páginas (o un `.txt`), para documentos largos |
+| `pdf_info` | Páginas, tamaños y si el PDF ya tiene texto |
+| `render_page` | Una página como imagen, para que el modelo vea firmas, sellos o tablas |
+| `edit_pdf_pages` | Quitar, conservar, girar o reordenar páginas (archivo nuevo) |
+| `ocr_languages` | Versión de Tesseract e idiomas instalados |
+
+Nunca se modifica el original y las rutas deben ser absolutas. Toma los idiomas, la
+resolución y la carpeta de salida de los Ajustes de la app. El registro va a
+`iureocr-mcp.log`, junto al de la app.
+
+`IureOCR --mcp-config` imprime lo que hay que pegar en la configuración del cliente,
+con la ruta real del ejecutable:
+
+```json
+{ "mcpServers": { "iureocr": { "command": "/ruta/a/IureOCR", "args": ["--mcp"] } } }
+```
+
+En IureOCR, **Ajustes → Asistentes de IA** detecta qué asistentes hay en el equipo y
+conecta cada uno por el camino que funciona con él:
+
+- **Microsoft 365 Copilot** (el que tiene casi todo el mundo) no puede usar programas del
+  equipo, pero sí el servidor MCP de la instancia de Iurefficient. Con la sesión iniciada,
+  **Crear acceso para Copilot** genera un token `iurmcp_…` (un año de vigencia) y muestra
+  la URL del servidor y los pasos para agregarlo a un agente en Copilot Studio
+  (encabezado `X-MCP-Token`). Copilot ve lo mismo que el usuario en Iurefficient; para que
+  lea un escaneo, hay que guardar ahí el resultado del OCR. Los tokens se revocan desde la
+  misma fila.
+- **GitHub Copilot en VS Code**: **Conectar** abre el enlace `vscode:mcp/install?…`; VS Code
+  pide confirmación y guarda el servidor en su configuración. IureOCR no la escribe.
+- **Claude Desktop**: **Conectar** agrega la entrada a `claude_desktop_config.json` sin
+  tocar el resto (deja una copia `.bak-iureocr`) y avisa si la app cambió de lugar. Después
+  hay que cerrar y abrir Claude Desktop.
+
+Para otros clientes: `claude mcp add iureocr -- /ruta/a/IureOCR --mcp` en Claude Code, o la
+entrada de `--mcp-config` en su configuración.
+
 ## Tesseract en cada sistema
 
 | Sistema | De dónde sale Tesseract | Modelos de idioma |

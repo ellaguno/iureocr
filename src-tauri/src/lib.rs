@@ -1,3 +1,4 @@
+mod mcp;
 mod ocr;
 mod pdf;
 mod settings;
@@ -5,7 +6,7 @@ mod tesseract;
 
 use iurefficient_connect::tr;
 use iurefficient_connect::{
-    api, lang,
+    agents, api, lang,
     rest::{Login, Session, SessionExport},
     secrets,
     webdav::{self, WebDav},
@@ -51,15 +52,17 @@ impl std::io::Write for LogTee {
     }
 }
 
-fn init_logging() {
+/// `file` es el nombre del registro: la ventana y el servidor MCP pueden correr a la vez
+/// y cada uno rota el suyo.
+fn init_logging(file: &str) {
     let env = env_logger::Env::default().default_filter_or("info");
     let mut builder = env_logger::Builder::from_env(env);
     let file = dirs::data_dir()
         .map(|d| d.join("com.iurefficient.iureocr").join("logs"))
         .and_then(|dir| {
             std::fs::create_dir_all(&dir).ok()?;
-            let log = dir.join("iureocr.log");
-            let _ = std::fs::rename(&log, dir.join("iureocr.prev.log"));
+            let log = dir.join(format!("{file}.log"));
+            let _ = std::fs::rename(&log, dir.join(format!("{file}.prev.log")));
             std::fs::File::create(&log).ok().map(|f| (log, f))
         });
     match file {
@@ -139,16 +142,32 @@ struct SystemInfo {
 }
 
 fn pdfium_dir(state: &AppState) -> Option<PathBuf> {
-    let d = state
-        .resource_dir
-        .as_ref()?
-        .join("resources")
-        .join("pdfium");
+    pdfium_dir_in(state.resource_dir.as_deref())
+}
+
+/// La pdfium empaquetada dentro de `resource_dir`, si existe.
+fn pdfium_dir_in(resource_dir: Option<&Path>) -> Option<PathBuf> {
+    let d = resource_dir?.join("resources").join("pdfium");
     if d.is_dir() {
         Some(d)
     } else {
         None
     }
+}
+
+/// Dónde deja el OCR sus resultados: la carpeta elegida en Ajustes o junto al original.
+fn output_dir_for(settings: &Settings, input: &Path) -> PathBuf {
+    match settings.output_mode.as_str() {
+        "custom" => settings
+            .output_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from),
+        _ => None,
+    }
+    .or_else(|| input.parent().map(Path::to_path_buf))
+    .unwrap_or_else(|| PathBuf::from("."))
 }
 
 #[tauri::command]
@@ -234,17 +253,7 @@ async fn ocr_start(
 ) -> Result<ocr::Outcome, String> {
     let settings = state.settings.lock().unwrap().clone();
     let input = PathBuf::from(&path);
-    let output_dir = match settings.output_mode.as_str() {
-        "custom" => settings
-            .output_dir
-            .as_deref()
-            .map(str::trim)
-            .filter(|d| !d.is_empty())
-            .map(PathBuf::from),
-        _ => None,
-    }
-    .or_else(|| input.parent().map(Path::to_path_buf))
-    .unwrap_or_else(|| PathBuf::from("."));
+    let output_dir = output_dir_for(&settings, &input);
     log::info!("OCR inicio: {path} (forzar={force})");
     let tess = tesseract::locate(state.resource_dir.as_deref()).map_err(|e| e.to_string())?;
     let pdfium = pdfium_dir(&state);
@@ -300,9 +309,6 @@ async fn ocr_start(
 // ---------------------------------------------------------------------------
 // Páginas: recuento, miniaturas y edición básica
 // ---------------------------------------------------------------------------
-/// Operación de edición ya ligada a sus argumentos; recibe la ruta de salida.
-type PdfOp<'a> = Box<dyn FnOnce(&Path) -> anyhow::Result<usize> + 'a>;
-
 fn is_pdf_path(p: &str) -> bool {
     p.to_ascii_lowercase().ends_with(".pdf")
 }
@@ -382,32 +388,7 @@ async fn pdf_edit_pages(
 ) -> Result<PdfEditResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = Path::new(&path);
-        let (suffix, run): (&str, PdfOp) = match op.as_str() {
-            "delete" => (
-                lang::pick(" - pages removed", " - sin páginas"),
-                Box::new(|out| pdf::delete_pages(input, &pages, out)),
-            ),
-            "keep" => (
-                lang::pick(" - pages", " - páginas"),
-                Box::new(|out| pdf::keep_pages(input, &pages, out)),
-            ),
-            "rotate" => (
-                lang::pick(" - rotated", " - rotado"),
-                Box::new(|out| pdf::rotate_pages(input, &pages, degrees.unwrap_or(90), out)),
-            ),
-            "reorder" => (
-                lang::pick(" - reordered", " - reordenado"),
-                Box::new(|out| pdf::reorder_pages(input, &pages, out)),
-            ),
-            other => {
-                return Err(anyhow::anyhow!(tr!(
-                    "unknown operation: {other}",
-                    "operación desconocida: {other}"
-                )))
-            }
-        };
-        let output = pdf::sibling_output(input, suffix);
-        let n = run(&output)?;
+        let (output, n) = pdf::edit(input, &op, &pages, degrees)?;
         log::info!(
             "PDF {op} {} → {} ({n} páginas)",
             input.display(),
@@ -908,6 +889,147 @@ struct UpdateNotice {
     url: String,
 }
 
+// ---------------------------------------------------------------------------
+// Asistentes de IA: servidor MCP local (Claude Desktop, VS Code) y el de la
+// instancia (Microsoft 365 Copilot)
+// ---------------------------------------------------------------------------
+
+/// Clave con la que IureOCR aparece en la configuración de los asistentes.
+const MCP_KEY: &str = "iureocr";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentsStatus {
+    claude_desktop: agents::Status,
+    vscode: agents::Status,
+}
+
+#[tauri::command]
+fn agents_status() -> AgentsStatus {
+    AgentsStatus {
+        claude_desktop: agents::claude_desktop_status(MCP_KEY),
+        vscode: agents::vscode_status(MCP_KEY),
+    }
+}
+
+#[tauri::command]
+fn claude_desktop_connect() -> Result<agents::Status, String> {
+    agents::claude_desktop_connect(MCP_KEY).map_err(|e| format!("{e:#}"))?;
+    Ok(agents::claude_desktop_status(MCP_KEY))
+}
+
+#[tauri::command]
+fn claude_desktop_disconnect() -> Result<agents::Status, String> {
+    agents::claude_desktop_disconnect(MCP_KEY).map_err(|e| format!("{e:#}"))?;
+    Ok(agents::claude_desktop_status(MCP_KEY))
+}
+
+/// Abre el enlace `vscode:mcp/install?…`; VS Code pide confirmación y lo guarda.
+#[tauri::command]
+fn vscode_connect() -> Result<(), String> {
+    let url = agents::vscode_install_url(MCP_KEY).map_err(|e| format!("{e:#}"))?;
+    log::info!("VS Code: abriendo el enlace de instalación MCP");
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| {
+        tr!(
+            "Could not open VS Code: {e}",
+            "No se pudo abrir VS Code: {e}"
+        )
+    })
+}
+
+/// Los tokens de agente que creó esta función se reconocen por el nombre.
+const COPILOT_TOKEN_NAME: &str = "Microsoft 365 Copilot";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CopilotStatus {
+    signed_in: bool,
+    endpoint_url: Option<String>,
+    /// Página de la instancia donde se administran los tokens de agente.
+    manage_url: Option<String>,
+    tokens: Vec<api::McpTokenInfo>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CopilotToken {
+    endpoint_url: String,
+    token: String,
+    info: api::McpTokenInfo,
+}
+
+fn manage_url(sess: &Session) -> Option<String> {
+    sess.account()
+        .api("/dashboard/settings/agents")
+        .ok()
+        .map(|u| u.to_string())
+}
+
+#[tauri::command]
+async fn copilot_status(state: State<'_, AppState>) -> Result<CopilotStatus, String> {
+    let off = |error: Option<String>| CopilotStatus {
+        signed_in: false,
+        endpoint_url: None,
+        manage_url: None,
+        tokens: vec![],
+        error,
+    };
+    let sess = match iure_session(&state).await {
+        Ok(s) => s,
+        Err(_) => return Ok(off(None)),
+    };
+    match api::list_mcp_tokens(&sess).await {
+        Ok(t) => Ok(CopilotStatus {
+            signed_in: true,
+            endpoint_url: Some(t.endpoint_url),
+            manage_url: manage_url(&sess),
+            tokens: t
+                .tokens
+                .into_iter()
+                .filter(|t| t.is_valid && t.name.starts_with(COPILOT_TOKEN_NAME))
+                .collect(),
+            error: None,
+        }),
+        Err(e) => Ok(CopilotStatus {
+            signed_in: true,
+            manage_url: manage_url(&sess),
+            ..off(Some(format!("{e:#}")))
+        }),
+    }
+}
+
+/// Crea un token de agente para Microsoft 365 Copilot (un año de vigencia). El secreto
+/// sólo se muestra ahora: no se guarda en el equipo, porque lo usa Copilot, no la app.
+#[tauri::command]
+async fn copilot_create_token(state: State<'_, AppState>) -> Result<CopilotToken, String> {
+    let sess = iure_session(&state).await?;
+    let list = api::list_mcp_tokens(&sess)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let name = tr!(
+        "{COPILOT_TOKEN_NAME} (created from {APP_NAME})",
+        "{COPILOT_TOKEN_NAME} (creado desde {APP_NAME})"
+    );
+    let created = api::create_mcp_token(&sess, &name, Some(365))
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    log::info!("token de agente para Microsoft 365 Copilot creado");
+    Ok(CopilotToken {
+        endpoint_url: list.endpoint_url,
+        token: created.secret,
+        info: created.info,
+    })
+}
+
+#[tauri::command]
+async fn copilot_revoke_token(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let sess = iure_session(&state).await?;
+    api::revoke_mcp_token(&sess, &id)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 async fn check_update_notice() -> Result<Option<UpdateNotice>, String> {
     let r = iurefficient_connect::releases::consultar(
@@ -926,9 +1048,43 @@ async fn check_update_notice() -> Result<Option<UpdateNotice>, String> {
 // ---------------------------------------------------------------------------
 // Arranque
 // ---------------------------------------------------------------------------
+
+/// La misma carpeta de recursos que usa Tauri, calculada sin arrancar Tauri.
+fn standalone_resource_dir() -> Option<PathBuf> {
+    let info = tauri::PackageInfo {
+        name: APP_NAME.into(),
+        version: env!("CARGO_PKG_VERSION").parse().ok()?,
+        authors: env!("CARGO_PKG_AUTHORS"),
+        description: env!("CARGO_PKG_DESCRIPTION"),
+        crate_name: env!("CARGO_PKG_NAME"),
+    };
+    tauri::utils::platform::resource_dir(&info, &tauri::Env::default()).ok()
+}
+
+/// `IureOCR --mcp`: servidor MCP por stdio, sin ventana. Devuelve el código de salida.
+pub fn run_mcp() -> i32 {
+    init_logging("iureocr-mcp");
+    let settings_path = dirs::config_dir()
+        .map(|d| d.join("com.iurefficient.iureocr").join("settings.json"))
+        .unwrap_or_default();
+    let settings = Settings::load(&settings_path);
+    lang::set(lang::resolve(&settings.ui_language));
+    let resource_dir = standalone_resource_dir();
+    log::info!("modo MCP; recursos en {:?}", resource_dir);
+    mcp::serve(settings, resource_dir)
+}
+
+/// Configuración para registrar este ejecutable como servidor MCP en un cliente
+/// (Claude Desktop, Claude Code, VS Code): `{"command": …, "args": ["--mcp"]}`.
+pub fn mcp_client_config() -> serde_json::Value {
+    let entry = agents::server_entry()
+        .unwrap_or_else(|_| serde_json::json!({"command": APP_NAME, "args": ["--mcp"]}));
+    serde_json::json!({ "mcpServers": { MCP_KEY: entry } })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_logging();
+    init_logging("iureocr");
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -1022,6 +1178,13 @@ pub fn run() {
             launch_app,
             onlyoffice_status,
             open_with_onlyoffice,
+            agents_status,
+            claude_desktop_connect,
+            claude_desktop_disconnect,
+            vscode_connect,
+            copilot_status,
+            copilot_create_token,
+            copilot_revoke_token,
             check_update_notice,
         ])
         .run(tauri::generate_context!())

@@ -9,6 +9,7 @@ import {
   type IureUploadProgress,
   type OcrOutcome,
   type OcrProgress,
+  type AgentsStatus,
   type OnlyOfficeStatus,
   type Settings,
   type SystemInfo,
@@ -65,6 +66,7 @@ export const app = $state({
   updateNotice: null as { version: string; url: string } | null,
   apps: null as AppStatus[] | null,
   onlyoffice: null as OnlyOfficeStatus | null,
+  agents: null as AgentsStatus | null,
 });
 
 let toastSeq = 0;
@@ -368,6 +370,11 @@ export async function refreshApps(withNetwork: boolean): Promise<void> {
   }
   try {
     app.onlyoffice = await api.onlyofficeStatus();
+  } catch {
+    /* sin detección */
+  }
+  try {
+    app.agents = await api.agentsStatus();
   } catch {
     /* sin detección */
   }

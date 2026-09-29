@@ -33,6 +33,42 @@ pub fn page_sizes(pdfium: &pdfium_render::prelude::Pdfium, path: &Path) -> Resul
         .collect())
 }
 
+/// Texto de la capa de texto de las páginas `from..=to` (1-based, recortadas al total).
+/// Devuelve el total de páginas y el texto de cada página pedida.
+pub fn page_texts(
+    pdfium: &pdfium_render::prelude::Pdfium,
+    path: &Path,
+    from: usize,
+    to: usize,
+) -> Result<(usize, Vec<(usize, String)>)> {
+    let doc = pdfium.load_pdf_from_file(path, None).map_err(|e| {
+        anyhow!(tr!(
+            "Could not open the PDF: {e}",
+            "No se pudo abrir el PDF: {e}"
+        ))
+    })?;
+    let total = doc.pages().len() as usize;
+    let from = from.max(1);
+    let to = to.min(total);
+    let mut out = Vec::new();
+    for (i, page) in doc.pages().iter().enumerate() {
+        let n = i + 1;
+        if n < from {
+            continue;
+        }
+        if n > to {
+            break;
+        }
+        // pdfium separa las líneas con \r\n en todos los sistemas.
+        let text = page
+            .text()
+            .map(|t| t.all().replace("\r\n", "\n"))
+            .unwrap_or_default();
+        out.push((n, text));
+    }
+    Ok((total, out))
+}
+
 /// Tamaño en píxeles de un archivo de imagen, como una sola página.
 pub fn image_size(path: &Path) -> Result<Vec<(f32, f32)>> {
     let (w, h) = image::image_dimensions(path).with_context(|| {
@@ -257,6 +293,45 @@ pub fn rotate_pages(input: &Path, pages: &[u32], degrees: i64, output: &Path) ->
     }
     finish(doc, output)?;
     Ok(done)
+}
+
+/// Edición de páginas: `op` = "delete" | "keep" | "rotate" | "reorder"; `pages` 1-based
+/// (en "reorder", todas las páginas en el orden nuevo). Escribe un archivo nuevo junto al
+/// original y devuelve su ruta y cuántas páginas tiene o se tocaron.
+pub fn edit(
+    input: &Path,
+    op: &str,
+    pages: &[u32],
+    degrees: Option<i64>,
+) -> Result<(PathBuf, usize)> {
+    type Op<'a> = Box<dyn FnOnce(&Path) -> Result<usize> + 'a>;
+    let (suffix, run): (&str, Op) = match op {
+        "delete" => (
+            lang::pick(" - pages removed", " - sin páginas"),
+            Box::new(|out| delete_pages(input, pages, out)),
+        ),
+        "keep" => (
+            lang::pick(" - pages", " - páginas"),
+            Box::new(|out| keep_pages(input, pages, out)),
+        ),
+        "rotate" => (
+            lang::pick(" - rotated", " - rotado"),
+            Box::new(|out| rotate_pages(input, pages, degrees.unwrap_or(90), out)),
+        ),
+        "reorder" => (
+            lang::pick(" - reordered", " - reordenado"),
+            Box::new(|out| reorder_pages(input, pages, out)),
+        ),
+        other => {
+            return Err(anyhow!(tr!(
+                "unknown operation: {other}",
+                "operación desconocida: {other}"
+            )))
+        }
+    };
+    let output = sibling_output(input, suffix);
+    let n = run(&output)?;
+    Ok((output, n))
 }
 
 /// Atributos que una página puede heredar de sus nodos `Pages` antecesores.
