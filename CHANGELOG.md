@@ -11,6 +11,19 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+## [0.5.1] — 2026-09-29
+
+### Corregido
+
+- **Actualizar desde la app en Linux con el paquete .deb o .rpm.** El actualizador
+  bajaba el AppImage, lo rechazaba («update is not a valid deb package») y el aviso
+  «Descargando…» desaparecía sin hacer nada. Ahora cada release publica el .deb y el
+  .rpm firmados y la app instala el mismo tipo de paquete que tiene (pide la contraseña
+  de administrador). Quien tenga la 0.5.0 o anterior por .deb debe instalar esta
+  versión a mano una vez.
+- Si la instalación de una actualización falla, se muestra el error con un botón para
+  abrir la página de descarga, en vez de no pasar nada.
+
 ## [0.5.0] — 2026-09-28
 
 ### Añadido

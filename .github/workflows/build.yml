@@ -81,6 +81,19 @@ jobs:
           projectPath: .
           args: ${{ matrix.args }}
 
+      # El actualizador instala el paquete del mismo tipo que la app (una instalación
+      # .deb no acepta un AppImage), así que el .deb y el .rpm también llevan firma.
+      - name: Firmar .deb y .rpm para el actualizador
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          find src-tauri/target -path '*/release/bundle/*' -type f \( -name '*.deb' -o -name '*.rpm' \) -print | while read -r f; do
+            [ -f "$f.sig" ] || npx tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$f"
+          done
+
       # --- Firma Authenticode (Windows) con SignPath -------------------------------
       # Solo en releases y solo cuando existen el token (secreto SIGNPATH_API_TOKEN) y
       # las variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG y
@@ -151,7 +164,8 @@ jobs:
           mkdir -p dist-release
           find src-tauri/target -path '*/release/bundle/*' -type f \
             \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \
-               -o -name '*.AppImage.sig' -o -name '*-setup.exe.sig' -o -name '*.msi.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+               -o -name '*.AppImage.sig' -o -name '*-setup.exe.sig' -o -name '*.msi.sig' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+               -o -name '*.deb.sig' -o -name '*.rpm.sig' \) \
             -print | while read -r f; do
             base="$(basename "$f")"
             case "$base" in
@@ -160,6 +174,8 @@ jobs:
               *.AppImage.sig)   ext="AppImage.sig" ;;
               *-setup.exe.sig)  ext="exe.sig" ;;
               *.msi.sig)        ext="msi.sig" ;;
+              *.deb.sig)        ext="deb.sig" ;;
+              *.rpm.sig)        ext="rpm.sig" ;;
               *)                ext="${base##*.}" ;;
             esac
             cp "$f" "dist-release/IureOCR_${VERSION}_${{ matrix.orden }}-${{ matrix.name }}.${ext}"
@@ -220,6 +236,11 @@ jobs:
                           continue
                       for k in keys:
                           platforms[k] = {"url": base + asset, "signature": open(sig).read().strip()}
+              # Claves por instalador ({os}-{arch}-{tipo}): el actualizador las prefiere a
+              # {os}-{arch}, así una instalación .deb/.rpm recibe su propio paquete.
+              for ext, key in ((".deb", "linux-x86_64-deb"), (".rpm", "linux-x86_64-rpm")):
+                  if asset.endswith(ext) and "-linux-x64." in asset:
+                      platforms[key] = {"url": base + asset, "signature": open(sig).read().strip()}
           manifest = {"version": version, "notes": f"IureOCR {version}", "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": platforms}
           json.dump(manifest, open("latest.json", "w"), indent=2, ensure_ascii=False)
           print(json.dumps(manifest, indent=2, ensure_ascii=False))

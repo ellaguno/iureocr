@@ -60,6 +60,8 @@ const en = {
   "update.restart": "Restart",
   "update.later": "Later",
   "update.checkFailed": "Could not check for updates.\n{error}",
+  "update.installFailed": "Could not install the update.\n{error}\n\nYou can download the installer from the releases page.",
+  "update.openDownload": "Open download page",
   "update.upToDate": "You already have the latest version.",
 
   // Barra lateral
@@ -359,6 +361,8 @@ const es: Record<Key, string> = {
   "update.restart": "Reiniciar",
   "update.later": "Después",
   "update.checkFailed": "No se pudo buscar actualizaciones.\n{error}",
+  "update.installFailed": "No se pudo instalar la actualización.\n{error}\n\nPuedes descargar el instalador desde la página de versiones.",
+  "update.openDownload": "Abrir página de descarga",
   "update.upToDate": "Ya tienes la última versión.",
 
   "sidebar.website": "Sitio web",
