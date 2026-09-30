@@ -5,7 +5,7 @@ description = "OCR local con Tesseract y herramientas PDF conectadas a Iureffici
 authors = ["Iurefficient"]
 edition = "2021"
 rust-version = "1.80"
-license = "MIT"
+license = "Apache-2.0"
 
 [lib]
 name = "iureocr_lib"

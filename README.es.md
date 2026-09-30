@@ -186,5 +186,5 @@ operating system keychain, never in configuration files.
 
 ## Licencia
 
-MIT. Tesseract (Apache-2.0), pdfium (BSD-3) y los modelos `tessdata_fast`
+Apache License 2.0 (ver [LICENSE](LICENSE)). Tesseract (Apache-2.0), pdfium (BSD-3) y los modelos `tessdata_fast`
 (Apache-2.0) conservan sus licencias.
