@@ -57,7 +57,7 @@ mockIPC(
       case "apps_status":
         return [
           { id: "transcribe", name: "IureTranscribe", description: "", installed: true, path: "/usr/bin/iuretranscribe", downloadUrl: "", latestVersion: null },
-          { id: "editor", name: "IureEditor", description: "", installed: true, path: "/usr/bin/iureditor", downloadUrl: "", latestVersion: null },
+          { id: "editor", name: "iureditor", description: "", installed: true, path: "/usr/bin/iureditor", downloadUrl: "", latestVersion: null },
           { id: "dav", name: "IureDav", description: "", installed: false, path: null, downloadUrl: "https://github.com/ellaguno/iuredav/releases/latest", latestVersion: null },
         ];
       case "onlyoffice_status": return { installed: true, path: "/usr/bin/onlyoffice-desktopeditors", downloadUrl: "" };

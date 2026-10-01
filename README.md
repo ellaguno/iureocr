@@ -177,7 +177,7 @@ Other clients: `claude mcp add iureocr -- /path/to/IureOCR --mcp` in Claude Code
 | App | What it does |
 | --- | --- |
 | [IureTranscribe](https://github.com/ellaguno/iuretranscribe) | Local Whisper transcription, live recording with who-spoke, summaries and minutes. |
-| [IureEditor](https://github.com/ellaguno/iureditor) | WYSIWYG Markdown editor with Mermaid, LaTeX and PDF/DOCX export. |
+| [iureditor](https://github.com/ellaguno/iureditor) | WYSIWYG Markdown editor with Mermaid, LaTeX and PDF/DOCX export. |
 | [IureDav](https://github.com/ellaguno/iuredav) | Mount a WebDAV server (or Iurefficient) as a drive. |
 | **IureOCR** | Local OCR that turns scans into searchable PDFs. |
 | [iureTI](https://github.com/ellaguno/iureTI) | IT asset discovery probe for the Iurefficient inventory. |
