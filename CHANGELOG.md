@@ -11,6 +11,11 @@ ilegibles con un modelo de visión, primero por el motor de la instancia u OpenR
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
+### Cambiado
+
+- Conector `iurefficient-connect` 0.7.1: la tarjeta de apps de Iurefficient muestra
+  el editor como «iureditor».
+
 ## [0.5.1] — 2026-09-29
 
 ### Corregido

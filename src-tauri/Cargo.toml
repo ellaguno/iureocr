@@ -40,7 +40,7 @@ image = "0.25"
 # Manipulación de páginas (quitar, conservar, rotar) sin dependencias nativas.
 lopdf = "0.45"
 base64 = "0.22"
-iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.0" }
+iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.1" }
 
 [profile.release]
 codegen-units = 1
