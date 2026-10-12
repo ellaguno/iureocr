@@ -1,3 +1,4 @@
+mod editar;
 mod mcp;
 mod ocr;
 mod pdf;
@@ -398,6 +399,53 @@ async fn pdf_edit_pages(
             path: output.to_string_lossy().into_owned(),
             pages: n,
         })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
+}
+
+/// Testado: quita definitivamente lo que hay bajo las zonas marcadas (PdfCraft).
+#[tauri::command]
+async fn pdf_redact(
+    path: String,
+    areas: Vec<editar::RedactArea>,
+) -> Result<editar::RedactResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let input = Path::new(&path);
+        let (output, r) = editar::redact(input, &areas)?;
+        log::info!(
+            "PDF testado {} → {} ({} zonas, {} caracteres, {} imágenes)",
+            input.display(),
+            output.display(),
+            r.areas,
+            r.glyphs,
+            r.images
+        );
+        Ok(r)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
+}
+
+/// Numeración Bates de todas las páginas (PdfCraft).
+#[tauri::command]
+async fn pdf_bates(
+    path: String,
+    options: editar::BatesOptions,
+) -> Result<editar::BatesResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let input = Path::new(&path);
+        let (output, r) = editar::bates(input, &options)?;
+        log::info!(
+            "PDF Bates {} → {} ({}–{})",
+            input.display(),
+            output.display(),
+            r.first,
+            r.last
+        );
+        Ok(r)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1166,6 +1214,8 @@ pub fn run() {
             pdf_page_sizes,
             pdf_thumbnails,
             pdf_edit_pages,
+            pdf_redact,
+            pdf_bates,
             iure_login,
             iure_session_status,
             iure_logout,

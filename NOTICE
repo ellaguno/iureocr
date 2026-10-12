@@ -2,3 +2,8 @@ iureocr
 Copyright 2026 Eduardo Llaguno
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software from PdfCraft (https://github.com/storytold/pdfcraft),
+Copyright 2026 ArtCraft Team and the PdfCraft contributors, used under the Apache License,
+Version 2.0 (it is dual-licensed MIT OR Apache-2.0): the crates pdfcraft-cos, -model, -annot,
+-redact and -edit and their internal dependencies. The ArtCraft name and logos are not used.

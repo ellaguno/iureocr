@@ -3,11 +3,14 @@
   import { api } from "../lib/api";
   import { addReadyFile, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import RedactView from "./RedactView.svelte";
+  import BatesDialog from "./BatesDialog.svelte";
   import { t, tn } from "../lib/i18n.svelte";
 
   let { job, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number) => void } = $props();
 
   let selected = $state<Set<number>>(new Set());
+  let tool = $state<"redact" | "bates" | null>(null);
   let working = $state<string | null>(null);
   let total = $derived(job.pages ?? 0);
   /** Página en curso del OCR (1-based), para resaltarla. */
@@ -153,6 +156,8 @@
         <button class="btn sm ghost" onclick={reverseOrder} disabled={total < 2 || !!working} title={t("pagesView.reverseTitle")}>{t("pagesView.reverse")}</button>
         <button class="btn sm" onclick={() => edit("rotate", 90)} disabled={!selected.size || !!working} title={t("pagesView.rotateTitle")}><Icon name="refresh" size={14} /> {t("pagesView.rotate")}</button>
         <button class="btn sm" onclick={() => edit("keep")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.keepTitle")}><Icon name="copy" size={14} /> {t("pagesView.keep")}</button>
+        <button class="btn sm" onclick={() => (tool = "redact")} disabled={!total || !!working || isActive(job)} title={t("pagesView.redactTitle")}><Icon name="redact" size={14} /> {t("pagesView.redact")}</button>
+        <button class="btn sm" onclick={() => (tool = "bates")} disabled={!total || !!working || isActive(job)} title={t("pagesView.batesTitle")}><Icon name="hash" size={14} /> {t("pagesView.bates")}</button>
         <button class="btn sm danger" onclick={() => edit("delete")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.deleteTitle")}><Icon name="trash" size={14} /> {t("pagesView.delete")}</button>
         {/if}
       </div>
@@ -197,6 +202,12 @@
     </div>
   </div>
 </div>
+
+{#if tool === "redact"}
+  <RedactView path={sourcePdf} name={job.name} {total} onclose={() => (tool = null)} ondone={() => ((tool = null), onclose())} />
+{:else if tool === "bates"}
+  <BatesDialog path={sourcePdf} name={job.name} {total} onclose={() => (tool = null)} ondone={() => ((tool = null), onclose())} />
+{/if}
 
 <style>
   .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 30; }

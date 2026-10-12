@@ -61,6 +61,37 @@ export interface PdfEditResult {
   pages: number;
 }
 
+/** Zona a testar: página 0-based y rectángulo en fracciones de la página vista (origen arriba a la izquierda). */
+export interface RedactArea {
+  page: number;
+  rect: [number, number, number, number];
+}
+
+export interface RedactResult {
+  path: string;
+  areas: number;
+  pages: number;
+  glyphs: number;
+  images: number;
+}
+
+export interface BatesOptions {
+  prefix: string;
+  suffix: string;
+  digits: number;
+  start: number;
+  /** 0–2 encabezado izquierda/centro/derecha; 3–5 pie izquierda/centro/derecha. */
+  position: number;
+  fontSize: number;
+}
+
+export interface BatesResult {
+  path: string;
+  pages: number;
+  first: string;
+  last: string;
+}
+
 export interface Terminology {
   case: string;
   cases: string;
@@ -211,6 +242,10 @@ export const api = {
   /** Quitar, conservar o rotar páginas (1-based); escribe un PDF nuevo junto al original. */
   pdfEditPages: (path: string, op: "delete" | "keep" | "rotate" | "reorder", pages: number[], degrees?: number) =>
     invoke<PdfEditResult>("pdf_edit_pages", { path, op, pages, degrees: degrees ?? null }),
+  /** Testado definitivo de las zonas marcadas (PdfCraft); escribe un PDF nuevo. */
+  pdfRedact: (path: string, areas: RedactArea[]) => invoke<RedactResult>("pdf_redact", { path, areas }),
+  /** Numeración Bates de todas las páginas (PdfCraft); escribe un PDF nuevo. */
+  pdfBates: (path: string, options: BatesOptions) => invoke<BatesResult>("pdf_bates", { path, options }),
   iureLogin: (password: string, totpCode?: string, totpToken?: string) =>
     invoke<IureLoginResult>("iure_login", { password, totpCode: totpCode ?? null, totpToken: totpToken ?? null }),
   iureSessionStatus: () => invoke<IureSessionStatus>("iure_session_status"),

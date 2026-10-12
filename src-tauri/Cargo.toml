@@ -40,6 +40,13 @@ image = "0.25"
 # Manipulación de páginas (quitar, conservar, rotar) sin dependencias nativas.
 lopdf = "0.45"
 base64 = "0.22"
+# Prueba: testado y numeración Bates con el motor de PdfCraft (MIT OR Apache-2.0).
+# Sin versión en crates.io y con cambios diarios: fijado a un commit concreto.
+pdfcraft-cos = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
+pdfcraft-model = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
+pdfcraft-annot = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
+pdfcraft-redact = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
+pdfcraft-edit = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
 iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.1" }
 
 [profile.release]
