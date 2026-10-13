@@ -362,7 +362,7 @@
 </div>
 
 {#if tool === "redact"}
-  <RedactView session={session!} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
+  <RedactView session={session!} name={job.name} {total} start={selected.size ? Math.min(...selected) : 0} onclose={() => (tool = null)} ondone={toolDone} />
 {:else if tool === "bates"}
   <BatesDialog session={session!} name={job.name} {total} onclose={() => (tool = null)} ondone={() => toolDone(null)} />
 {/if}

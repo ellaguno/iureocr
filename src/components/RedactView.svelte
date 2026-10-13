@@ -5,9 +5,11 @@
   import { t, tn } from "../lib/i18n.svelte";
 
   /** Testado: se marcan zonas sobre la página y PdfCraft quita lo que hay debajo. */
-  let { session, name, total, onclose, ondone }: { session: string; name: string; total: number; onclose: () => void; ondone: (changed: number[]) => void } = $props();
+  let { session, name, total, start = 0, onclose, ondone }: { session: string; name: string; total: number; start?: number; onclose: () => void; ondone: (changed: number[]) => void } = $props();
 
-  let page = $state(0);
+  /** Empieza en la primera página seleccionada en la ventana de páginas. */
+  // svelte-ignore state_referenced_locally
+  let page = $state(Math.min(Math.max(0, start), Math.max(0, total - 1)));
   let images = $state<Record<number, string>>({});
   let areas = $state<RedactArea[]>([]);
   let working = $state(false);
