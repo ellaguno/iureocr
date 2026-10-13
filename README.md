@@ -34,8 +34,8 @@ keychain and session with them.
   invisible text layer on top, so you can search and copy, plus a `.txt` with the plain text.
 - **Whole case files in one go.** A queue with per-page progress, and PDFs that already have
   text are skipped instead of being processed again.
-- **Page tools included.** View, remove, keep, rotate and reorder pages without opening
-  another program.
+- **Page tools included.** View, remove, keep, rotate and reorder pages, redact what must
+  not be shared and add Bates numbers, without opening another program.
 - **Works with your AI assistant.** `IureOCR --mcp` lets Claude, GitHub Copilot and other MCP
   clients run OCR and read PDFs on this computer, with no OpenRouter key.
 
@@ -71,9 +71,15 @@ keychain and session with them.
   hundreds of pages open without waiting. It highlights the page being recognized and shows
   the resulting PDF when OCR finishes.
 - **Page editing** with thumbnails: remove pages, keep only the selected ones, rotate them
-  90°, or reorder them by dragging (also "To start", "To end" and "Reverse order"). Each edit
-  writes a new PDF next to the original (` - pages removed`, ` - rotated`, …); the original
-  is not modified.
+  (90° right by default; 180° and 90° left from the menu), or reorder them by dragging (also
+  "To start", "To end" and "Reverse order"). Edits pile up in a temporary copy until you
+  choose **Save as copy** (` - edited.pdf` next to the original) or **Replace original**;
+  closing asks before discarding them.
+- **Redaction.** Mark areas on a page and everything under them is removed for good: the
+  text, including the invisible OCR layer, and the pixels of the scanned image. The result
+  is verified, and nothing is written if anything is left under a mark.
+- **Bates numbering** on every page, with prefix, suffix, digits, start number and one of
+  six header or footer positions.
 - Add files by dragging them onto the window, opening them with IureOCR from the system or
   with `iureocr://ocr?file=…` links.
 - **Save to Iurefficient**: to a project (REST API) or to any folder in the document tree
@@ -304,4 +310,6 @@ system keychain, never in configuration files.
 ## License
 
 Apache License 2.0 (see [LICENSE](LICENSE)). Tesseract (Apache-2.0), pdfium (BSD-3) and the
-`tessdata_fast` models (Apache-2.0) keep their own licenses.
+`tessdata_fast` models (Apache-2.0) keep their own licenses. Redaction and Bates numbering use
+the engine of [PdfCraft](https://github.com/storytold/pdfcraft) (MIT OR Apache-2.0); see
+[NOTICE](NOTICE).

@@ -1,6 +1,7 @@
 //! Páginas de un PDF: recuento, miniaturas (pdfium) y edición básica (lopdf):
-//! quitar páginas, quedarse con algunas y rotar. Nunca se sobrescribe el
-//! original: el resultado se escribe como archivo nuevo.
+//! quitar páginas, quedarse con algunas, rotar y reordenar. Cada edición escribe un
+//! archivo nuevo; la ventana de páginas las hace sobre una sesión (copia temporal) y sólo
+//! toca el original si se elige «Reemplazar original».
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;

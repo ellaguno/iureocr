@@ -5,14 +5,36 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.6.0] — 2026-10-12
+
+### Añadido
+
+- **Testado.** En la ventana de páginas, «Testar…» abre la página (la primera
+  seleccionada) para marcar zonas; al confirmar se elimina para siempre lo que hay
+  debajo: el texto, también la capa invisible del OCR, y los píxeles de la imagen
+  escaneada (también en escaneos JPEG). El resultado se verifica y, si queda algo bajo
+  una marca, no se escribe nada.
+- **Numeración Bates** de todas las páginas: prefijo, sufijo, cifras, número inicial,
+  posición (encabezado o pie, izquierda, centro o derecha) y tamaño, con vista previa.
+- Testado y Bates usan el motor de [PdfCraft](https://github.com/storytold/pdfcraft)
+  (MIT OR Apache-2.0); la atribución está en `NOTICE`.
+- Rotar páginas tiene un menú con 90° a la derecha, 180° y 90° a la izquierda; el botón
+  sigue girando 90° a la derecha.
+
 Previsto: unir PDF, dividir por rangos, proteger con contraseña,
-marca de agua y numerar; compresión real de imágenes (v2); rescate de páginas
+marca de agua; compresión real de imágenes (v2); rescate de páginas
 ilegibles con un modelo de visión, primero por el motor de la instancia u OpenRouter
 y después en local; lista de documentos pendientes de OCR de la instancia; Tesseract
 incluido también en macOS.
 
 ### Cambiado
 
+- **La ventana de páginas trabaja en una sesión.** Ya no escribe un PDF nuevo por cada
+  edición (« - rotado - reordenado - …»): las ediciones se acumulan en una copia temporal
+  y la ventana sigue abierta; al terminar se elige «Guardar como copia»
+  (« - editado.pdf») o «Reemplazar original» (con confirmación). Cerrar con cambios
+  pregunta antes de descartarlos. Tras cada edición sólo se vuelven a dibujar las
+  páginas que cambiaron. La herramienta `edit_pdf_pages` del servidor MCP no cambia.
 - Conector `iurefficient-connect` 0.7.1: la tarjeta de apps de Iurefficient muestra
   el editor como «iureditor».
 

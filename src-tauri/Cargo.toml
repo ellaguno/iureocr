@@ -1,6 +1,6 @@
 [package]
 name = "iureocr"
-version = "0.5.1"
+version = "0.6.0"
 description = "OCR local con Tesseract y herramientas PDF conectadas a Iurefficient"
 authors = ["Iurefficient"]
 edition = "2021"
@@ -40,7 +40,7 @@ image = "0.25"
 # Manipulación de páginas (quitar, conservar, rotar) sin dependencias nativas.
 lopdf = "0.45"
 base64 = "0.22"
-# Prueba: testado y numeración Bates con el motor de PdfCraft (MIT OR Apache-2.0).
+# Testado y numeración Bates con el motor de PdfCraft (MIT OR Apache-2.0, ver NOTICE).
 # Sin versión en crates.io y con cambios diarios: fijado a un commit concreto.
 pdfcraft-cos = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
 pdfcraft-model = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }

@@ -34,8 +34,8 @@ la cuenta, el llavero y la sesión.
   pone encima una capa de texto invisible para buscar y copiar, y además deja un `.txt`.
 - **Expedientes completos de una vez.** Una cola con progreso por página, y los PDF que ya
   tienen texto se omiten en lugar de procesarse otra vez.
-- **Herramientas de páginas incluidas.** Ver, quitar, conservar, rotar y reordenar páginas
-  sin abrir otro programa.
+- **Herramientas de páginas incluidas.** Ver, quitar, conservar, rotar y reordenar páginas,
+  testar lo que no debe compartirse y numerar con Bates, sin abrir otro programa.
 - **Funciona con tu asistente de IA.** `IureOCR --mcp` permite que Claude, GitHub Copilot y
   otros clientes MCP hagan OCR y lean PDF en este equipo, sin llave de OpenRouter.
 
@@ -71,9 +71,16 @@ la cuenta, el llavero y la sesión.
   abre expedientes de cientos de páginas sin esperar. Resalta la página que se está
   reconociendo y, al terminar el OCR, muestra el PDF resultante.
 - **Edición de páginas** con miniaturas: quitar páginas, conservar sólo las marcadas,
-  rotarlas 90° o reordenarlas arrastrando (también «Al principio», «Al final» y «Orden
-  inverso»). Cada edición escribe un PDF nuevo junto al original (« - sin páginas»,
-  « - rotado», …); el original no se modifica.
+  rotarlas (90° a la derecha por omisión; 180° y 90° a la izquierda desde el menú) o
+  reordenarlas arrastrando (también «Al principio», «Al final» y «Orden inverso»). Las
+  ediciones se acumulan en una copia temporal hasta que eliges **Guardar como copia**
+  (« - editado.pdf» junto al original) o **Reemplazar original**; al cerrar se pregunta
+  antes de descartarlas.
+- **Testado.** Marcas zonas sobre la página y se elimina para siempre lo que hay debajo: el
+  texto, también la capa invisible del OCR, y los píxeles de la imagen escaneada. El
+  resultado se verifica y, si queda algo bajo una marca, no se escribe nada.
+- **Numeración Bates** en todas las páginas, con prefijo, sufijo, cifras, número inicial y
+  una de seis posiciones en el encabezado o el pie.
 - Agrega archivos arrastrándolos a la ventana, abriéndolos con IureOCR desde el sistema o
   con enlaces `iureocr://ocr?file=…`.
 - **Guardar en Iurefficient**: en un proyecto (API REST) o en cualquier carpeta del árbol de
@@ -309,4 +316,6 @@ sistema operativo, nunca en archivos de configuración.
 ## Licencia
 
 Apache License 2.0 (ver [LICENSE](LICENSE)). Tesseract (Apache-2.0), pdfium (BSD-3) y los
-modelos `tessdata_fast` (Apache-2.0) conservan sus licencias.
+modelos `tessdata_fast` (Apache-2.0) conservan sus licencias. El testado y la numeración
+Bates usan el motor de [PdfCraft](https://github.com/storytold/pdfcraft) (MIT OR
+Apache-2.0); ver [NOTICE](NOTICE).

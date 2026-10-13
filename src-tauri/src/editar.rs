@@ -1,8 +1,8 @@
-//! Edición de contenido con el motor de PdfCraft (prueba): testado y numeración Bates.
+//! Edición de contenido con el motor de PdfCraft: testado y numeración Bates.
 //!
-//! Igual que en `pdf.rs`, nunca se sobrescribe el original: el resultado se escribe como
-//! archivo nuevo junto a él. Tras un testado se guarda siempre completo (no incremental),
-//! porque un guardado incremental conservaría los bytes originales con lo testado dentro.
+//! Cada operación lee un PDF y escribe otro (en la práctica, pasos de la sesión de edición
+//! de `pdf.rs`). Tras un testado se guarda siempre completo (no incremental), porque un
+//! guardado incremental conservaría los bytes originales con lo testado dentro.
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Datelike;
