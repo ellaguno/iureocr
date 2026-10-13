@@ -325,7 +325,7 @@ impl Server {
                 )));
             }
         }
-        let (output, n) = pdf::edit(&input, op, &pages, degrees)?;
+        let (output, n) = pdf::edit(&input, op, &pages, degrees, None)?;
         log::info!(
             "MCP: PDF {op} {} → {} ({n} páginas)",
             input.display(),

@@ -379,17 +379,21 @@ struct PdfEditResult {
 }
 
 /// Edición de páginas: `op` = "delete" | "keep" | "rotate" | "reorder"; `pages` 1-based
-/// (en "reorder", todas las páginas en el orden nuevo).
+/// (en "reorder", todas las páginas en el orden nuevo). Con `replace` reescribe `path` (una
+/// copia de trabajo); sin él crea `<nombre> - editado.pdf` (ver `pdf::edit_output`).
 #[tauri::command]
 async fn pdf_edit_pages(
     path: String,
     op: String,
     pages: Vec<u32>,
     degrees: Option<i64>,
+    replace: bool,
 ) -> Result<PdfEditResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = Path::new(&path);
-        let (output, n) = pdf::edit(input, &op, &pages, degrees)?;
+        let target = pdf::edit_output(input, replace);
+        let (written, n) = pdf::edit(input, &op, &pages, degrees, Some(&target))?;
+        let output = pdf::commit_output(written, input, replace)?;
         log::info!(
             "PDF {op} {} → {} ({n} páginas)",
             input.display(),
@@ -410,10 +414,14 @@ async fn pdf_edit_pages(
 async fn pdf_redact(
     path: String,
     areas: Vec<editar::RedactArea>,
+    replace: bool,
 ) -> Result<editar::RedactResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = Path::new(&path);
-        let (output, r) = editar::redact(input, &areas)?;
+        let target = pdf::edit_output(input, replace);
+        let mut r = editar::redact(input, &areas, &target)?;
+        let output = pdf::commit_output(target, input, replace)?;
+        r.path = output.to_string_lossy().into_owned();
         log::info!(
             "PDF testado {} → {} ({} zonas, {} caracteres, {} imágenes)",
             input.display(),
@@ -434,10 +442,14 @@ async fn pdf_redact(
 async fn pdf_bates(
     path: String,
     options: editar::BatesOptions,
+    replace: bool,
 ) -> Result<editar::BatesResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = Path::new(&path);
-        let (output, r) = editar::bates(input, &options)?;
+        let target = pdf::edit_output(input, replace);
+        let mut r = editar::bates(input, &options, &target)?;
+        let output = pdf::commit_output(target, input, replace)?;
+        r.path = output.to_string_lossy().into_owned();
         log::info!(
             "PDF Bates {} → {} ({}–{})",
             input.display(),

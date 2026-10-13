@@ -44,6 +44,8 @@ export interface Job {
   saved?: { target: string; webUrl: string; fileNames: string[]; at: number };
   startedAt?: number;
   finishedAt?: number;
+  /** Copia de trabajo creada por una edición: las siguientes ediciones la reescriben. */
+  edited?: boolean;
 }
 
 export interface Toast {
@@ -204,6 +206,34 @@ export async function loadThumbs(job: Job, from: number, to: number): Promise<vo
 export function addReadyFile(path: string): Job {
   const job = newJob(path, "ready", true);
   app.selectedJobId = job.id;
+  return job;
+}
+
+/** Archivo sobre el que editar y si se reescribe (copia de trabajo sin OCR posterior). */
+export function editTarget(job: Job): { path: string; replace: boolean } {
+  return { path: job.result?.pdfPath ?? job.path, replace: !!job.edited && !job.result };
+}
+
+/** Tras una edición: si reescribió la copia de trabajo, la recarga; si creó una, la añade. */
+export async function afterEdit(job: Job, path: string): Promise<Job> {
+  if (path !== job.path) {
+    const made = addReadyFile(path);
+    made.edited = true;
+    return made;
+  }
+  job.thumbs = {};
+  job.pages = null;
+  job.pageSizes = [];
+  job.saved = undefined;
+  api.fileSize(path).then((n) => (job.sizeBytes = n)).catch(() => {});
+  try {
+    job.pageSizes = await api.pdfPageSizes(path);
+    job.pages = job.pageSizes.length;
+    void loadThumbs(job, 0, 6);
+  } catch (e) {
+    job.pages = 0;
+    toast(`${job.name}: ${e}`, "error", 8000);
+  }
   return job;
 }
 

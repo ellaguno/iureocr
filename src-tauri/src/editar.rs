@@ -4,13 +4,12 @@
 //! archivo nuevo junto a él. Tras un testado se guarda siempre completo (no incremental),
 //! porque un guardado incremental conservaría los bytes originales con lo testado dentro.
 
-use crate::pdf::sibling_output;
 use anyhow::{anyhow, Context, Result};
 use chrono::Datelike;
 use iurefficient_connect::tr;
 use pdfcraft_cos::{write_full, Document, SaveOptions};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 fn open(path: &Path) -> Result<Document> {
@@ -91,9 +90,137 @@ fn to_user_space(doc: &Document, page: &pdfcraft_model::Page, r: [f64; 4]) -> [f
     [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)]
 }
 
+/// Marca (privada) de las imágenes que eran JPEG y se descomprimieron para testarlas.
+const WAS_JPEG: &[u8] = b"IureWasJPEG";
+
+/// Imágenes JPEG (DCTDecode) dibujadas directamente por la página.
+fn jpeg_images(doc: &Document, page: &pdfcraft_model::Page) -> Vec<pdfcraft_cos::ObjRef> {
+    let Some(res) = page.dict.get(b"Resources").and_then(|r| doc.dict(r)) else {
+        return Vec::new();
+    };
+    let Some(xo) = res.get(b"XObject").and_then(|x| doc.dict(x)) else {
+        return Vec::new();
+    };
+    xo.iter()
+        .filter_map(|(_, o)| o.as_ref())
+        .filter(|r| match &*doc.get(*r) {
+            pdfcraft_cos::Object::Stream(s) => {
+                let dct = |n: &[u8]| n == b"DCTDecode" || n == b"DCT";
+                s.dict.name(b"Subtype") == Some(b"Image")
+                    && match s.dict.get(b"Filter") {
+                        Some(pdfcraft_cos::Object::Name(n)) => dct(n),
+                        Some(pdfcraft_cos::Object::Array(a)) => {
+                            a.len() == 1 && a[0].as_name().is_some_and(dct)
+                        }
+                        _ => false,
+                    }
+            }
+            _ => false,
+        })
+        .collect()
+}
+
+/// PdfCraft no decodifica JPEG y, si una marca toca uno, quita la imagen entera (en un
+/// escaneo, la página completa). Las descomprimimos aquí para que borre sólo los píxeles
+/// marcados. Devuelve las originales, para restaurar las que no se toquen.
+fn unpack_jpegs(
+    doc: &mut Document,
+    pages: &[usize],
+) -> Vec<(pdfcraft_cos::ObjRef, pdfcraft_cos::Stream)> {
+    let all = pdfcraft_model::pages(doc);
+    let mut refs: Vec<_> = pages
+        .iter()
+        .filter_map(|p| all.get(*p))
+        .flat_map(|p| jpeg_images(doc, p))
+        .collect();
+    refs.sort_by_key(|r| (r.num, r.generation));
+    refs.dedup();
+    let mut originals = Vec::new();
+    for r in refs {
+        let pdfcraft_cos::Object::Stream(s) = &*doc.get(r) else { continue };
+        // Un /Decode (JPEG CMYK de Adobe, invertido) cambiaría el sentido de los valores:
+        // se deja como está y PdfCraft quitará la imagen entera, que es lo seguro.
+        if s.dict.contains(b"Decode") {
+            log::warn!("testado: JPEG {} con /Decode; se quitará entero", r.num);
+            continue;
+        }
+        let img = match image::load_from_memory_with_format(&s.raw, image::ImageFormat::Jpeg) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("testado: JPEG {} ilegible ({e}); se quitará entero", r.num);
+                continue;
+            }
+        };
+        let (cs, data, (w, h)) = match img.color().channel_count() {
+            1 | 2 => {
+                let g = img.to_luma8();
+                ("DeviceGray", g.as_raw().clone(), g.dimensions())
+            }
+            _ => {
+                let c = img.to_rgb8();
+                ("DeviceRGB", c.as_raw().clone(), c.dimensions())
+            }
+        };
+        let mut dict = s.dict.clone();
+        dict.remove(b"Length");
+        dict.set(b"Width".to_vec(), pdfcraft_cos::Object::Int(w as i64));
+        dict.set(b"Height".to_vec(), pdfcraft_cos::Object::Int(h as i64));
+        dict.set(b"BitsPerComponent".to_vec(), pdfcraft_cos::Object::Int(8));
+        dict.set(b"ColorSpace".to_vec(), pdfcraft_cos::Object::name(cs));
+        dict.set(WAS_JPEG.to_vec(), pdfcraft_cos::Object::Bool(true));
+        originals.push((r, s.clone()));
+        doc.set(r, pdfcraft_cos::Object::Stream(pdfcraft_cos::Stream::flate(dict, &data)));
+    }
+    originals
+}
+
+/// Tras testar: las imágenes descomprimidas que no se tocaron vuelven a ser el JPEG
+/// original, y las copias con píxeles borrados se recomprimen en JPEG (los píxeles ya
+/// están a cero, así que la compresión con pérdida no puede devolver nada de lo quitado).
+fn repack_jpegs(
+    doc: &mut Document,
+    originals: Vec<(pdfcraft_cos::ObjRef, pdfcraft_cos::Stream)>,
+) -> Result<()> {
+    for (r, s) in originals {
+        doc.set(r, pdfcraft_cos::Object::Stream(s));
+    }
+    let marked: Vec<_> = doc
+        .scan_objects()
+        .filter(|(_, o)| matches!(&**o, pdfcraft_cos::Object::Stream(s) if s.dict.contains(WAS_JPEG)))
+        .map(|(r, _)| r)
+        .collect();
+    for r in marked {
+        let pdfcraft_cos::Object::Stream(s) = &*doc.get(r) else { continue };
+        let (w, h) = (
+            s.dict.int(b"Width").unwrap_or(0) as u32,
+            s.dict.int(b"Height").unwrap_or(0) as u32,
+        );
+        let (kind, n) = if s.dict.name(b"ColorSpace") == Some(b"DeviceGray") {
+            (image::ExtendedColorType::L8, 1)
+        } else {
+            (image::ExtendedColorType::Rgb8, 3)
+        };
+        let data = s.decoded().map_err(|e| anyhow!("{e}"))?;
+        if data.len() < (w * h * n) as usize {
+            continue;
+        }
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 85)
+            .encode(&data[..(w * h * n) as usize], w, h, kind)
+            .context("JPEG")?;
+        let mut dict = s.dict.clone();
+        dict.remove(WAS_JPEG);
+        dict.remove(b"Length");
+        dict.remove(b"DecodeParms");
+        dict.set(b"Filter".to_vec(), pdfcraft_cos::Object::name("DCTDecode"));
+        doc.set(r, pdfcraft_cos::Object::Stream(pdfcraft_cos::Stream::from_raw(dict, jpeg)));
+    }
+    Ok(())
+}
+
 /// Testa las zonas indicadas: quita texto, imágenes y trazos que caen debajo y pinta
 /// recuadros negros. Si la verificación encuentra restos, falla sin escribir nada.
-pub fn redact(input: &Path, areas: &[RedactArea]) -> Result<(PathBuf, RedactResult)> {
+pub fn redact(input: &Path, areas: &[RedactArea], output: &Path) -> Result<RedactResult> {
     if areas.is_empty() {
         return Err(anyhow!(tr!(
             "Mark at least one area to redact",
@@ -101,6 +228,10 @@ pub fn redact(input: &Path, areas: &[RedactArea]) -> Result<(PathBuf, RedactResu
         )));
     }
     let mut doc = open(input)?;
+    let mut marked: Vec<usize> = areas.iter().map(|a| a.page).collect();
+    marked.sort_unstable();
+    marked.dedup();
+    let originals = unpack_jpegs(&mut doc, &marked);
     let pages = pdfcraft_model::pages(&doc);
     for area in areas {
         let page = pages.get(area.page).ok_or_else(|| {
@@ -139,16 +270,15 @@ pub fn redact(input: &Path, areas: &[RedactArea]) -> Result<(PathBuf, RedactResu
             "No se pudo testar: {e}"
         ))
     })?;
-    let output = sibling_output(input, &tr!(" - redacted", " - testado"));
-    save(&doc, &output)?;
-    let result = RedactResult {
+    repack_jpegs(&mut doc, originals)?;
+    save(&doc, output)?;
+    Ok(RedactResult {
         path: output.to_string_lossy().into_owned(),
         areas: report.marks,
         pages: report.pages,
         glyphs: report.glyphs,
         images: report.images_removed + report.images_cleared,
-    };
-    Ok((output, result))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +314,7 @@ pub fn bates_label(o: &BatesOptions, n: u64) -> String {
 }
 
 /// Numera todas las páginas con un número Bates correlativo.
-pub fn bates(input: &Path, o: &BatesOptions) -> Result<(PathBuf, BatesResult)> {
+pub fn bates(input: &Path, o: &BatesOptions, output: &Path) -> Result<BatesResult> {
     // `#` y `>>` delimitan los campos de la plantilla de PdfCraft.
     if [&o.prefix, &o.suffix]
         .iter()
@@ -224,15 +354,13 @@ pub fn bates(input: &Path, o: &BatesOptions) -> Result<(PathBuf, BatesResult)> {
             "No se pudieron numerar las páginas: {e}"
         ))
     })?;
-    let output = sibling_output(input, " - Bates");
-    save(&doc, &output)?;
-    let result = BatesResult {
+    save(&doc, output)?;
+    Ok(BatesResult {
         path: output.to_string_lossy().into_owned(),
         pages: count,
         first: bates_label(o, o.start),
         last: bates_label(o, o.start + count as u64 - 1),
-    };
-    Ok((output, result))
+    })
 }
 
 #[cfg(test)]
@@ -284,6 +412,59 @@ mod tests {
         assert_eq!(user(270, [0.0, 0.0, 0.5, 0.5]), [100.0, 50.0, 200.0, 100.0]);
     }
 
+    /// Página de 100×100 que es un escaneo JPEG gris claro de 200×200 px.
+    fn escaneo_jpeg() -> Document {
+        let img = image::GrayImage::from_pixel(200, 200, image::Luma([200]));
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90)
+            .encode(img.as_raw(), 200, 200, image::ExtendedColorType::L8)
+            .unwrap();
+        let content = b"q 100 0 0 100 0 0 cm /Im0 Do Q";
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offs = Vec::new();
+        let mut obj = |out: &mut Vec<u8>, body: &[u8]| {
+            offs.push(out.len());
+            out.extend(format!("{} 0 obj\n", offs.len()).bytes());
+            out.extend_from_slice(body);
+            out.extend_from_slice(b"\nendobj\n");
+        };
+        obj(&mut out, b"<< /Type /Catalog /Pages 2 0 R >>");
+        obj(&mut out, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        obj(&mut out, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>");
+        obj(&mut out, &[format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(), content, b"\nendstream"].concat());
+        obj(&mut out, &[format!("<< /Type /XObject /Subtype /Image /Width 200 /Height 200 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n", jpeg.len()).as_bytes(), &jpeg, b"\nendstream"].concat());
+        let x = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", offs.len() + 1).bytes());
+        for o in &offs {
+            out.extend(format!("{o:010} 00000 n \n").bytes());
+        }
+        out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n", offs.len() + 1).bytes());
+        Document::open(Arc::new(out)).unwrap()
+    }
+
+    #[test]
+    fn testar_un_escaneo_jpeg_borra_solo_la_zona() {
+        let dir = std::env::temp_dir().join(format!("iureocr-jpeg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("escaneo.pdf");
+        std::fs::write(&input, write_full(&escaneo_jpeg(), &SaveOptions::default()).unwrap()).unwrap();
+
+        // Mitad superior izquierda de la página.
+        let out = dir.join("testado.pdf");
+        let r = redact(&input, &[RedactArea { page: 0, rect: [0.0, 0.0, 0.5, 0.5] }], &out).unwrap();
+        assert_eq!(r.images, 1);
+        let doc = open(&out).unwrap();
+        let page = &pdfcraft_model::pages(&doc)[0];
+        let imgs = jpeg_images(&doc, page);
+        assert_eq!(imgs.len(), 1, "la página sigue teniendo su escaneo, en JPEG");
+        let pdfcraft_cos::Object::Stream(s) = &*doc.get(imgs[0]) else { panic!() };
+        assert!(!s.dict.contains(WAS_JPEG));
+        let px = image::load_from_memory(&s.raw).unwrap().to_luma8();
+        assert!(px.get_pixel(40, 40)[0] < 30, "bajo la marca: negro");
+        assert!(px.get_pixel(160, 160)[0] > 170, "fuera de la marca: intacto");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn testado_quita_el_texto_y_bates_numera() {
         let dir = std::env::temp_dir().join(format!("iureocr-editar-{}", std::process::id()));
@@ -292,7 +473,8 @@ mod tests {
         std::fs::write(&input, write_full(&pdf(0), &SaveOptions::default()).unwrap()).unwrap();
 
         // "SECRETO" está en y≈50 de 100, x 20–60 de 200.
-        let (out, r) = redact(&input, &[RedactArea { page: 0, rect: [0.05, 0.4, 0.5, 0.6] }]).unwrap();
+        let out = dir.join("testado.pdf");
+        let r = redact(&input, &[RedactArea { page: 0, rect: [0.05, 0.4, 0.5, 0.6] }], &out).unwrap();
         assert_eq!((r.areas, r.glyphs), (1, 7));
         let bytes = std::fs::read(&out).unwrap();
         let doc = Document::open(Arc::new(bytes.clone())).unwrap();
@@ -300,8 +482,9 @@ mod tests {
         assert!(!bytes.windows(7).any(|w| w == b"SECRETO"));
 
         let o = BatesOptions { prefix: "EXP-".into(), suffix: String::new(), digits: 4, start: 7, position: 5, font_size: 9.0 };
-        let (_, b) = bates(&out, &o).unwrap();
+        let b = bates(&out, &o, &dir.join("bates.pdf")).unwrap();
         assert_eq!((b.first.as_str(), b.last.as_str(), b.pages), ("EXP-0007", "EXP-0007", 1));
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+

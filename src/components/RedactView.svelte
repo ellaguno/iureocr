@@ -1,11 +1,11 @@
 <script lang="ts">
   import { api, type RedactArea } from "../lib/api";
-  import { addReadyFile, toast } from "../lib/state.svelte";
+  import { toast } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
   import { t, tn } from "../lib/i18n.svelte";
 
   /** Testado: se marcan zonas sobre la página y PdfCraft quita lo que hay debajo. */
-  let { path, name, total, onclose, ondone }: { path: string; name: string; total: number; onclose: () => void; ondone: () => void } = $props();
+  let { path, replace, name, total, onclose, ondone }: { path: string; replace: boolean; name: string; total: number; onclose: () => void; ondone: (path: string) => void } = $props();
 
   let page = $state(0);
   let images = $state<Record<number, string>>({});
@@ -74,10 +74,9 @@
     }
     working = true;
     try {
-      const r = await api.pdfRedact(path, areas);
-      const made = addReadyFile(r.path);
-      toast(t("redact.done", { name: made.name, areas: tn("redact.areas", r.areas), glyphs: r.glyphs, images: r.images }), "success", 8000);
-      ondone();
+      const r = await api.pdfRedact(path, areas, replace);
+      toast(t("redact.done", { name: r.path.split(/[\\/]/).pop()!, areas: tn("redact.areas", r.areas), glyphs: r.glyphs, images: r.images }), "success", 8000);
+      ondone(r.path);
     } catch (e) {
       toast(String(e), "error", 10000);
     } finally {

@@ -208,7 +208,7 @@
   <Viewer job={viewing.job} start={viewing.page} onclose={() => (viewing = null)} onpages={() => { pagesOf = viewing!.job; viewing = null; }} />
 {/if}
 {#if pagesOf}
-  <PagesView job={pagesOf} onclose={() => (pagesOf = null)} onview={(page) => { viewing = { job: pagesOf!, page }; pagesOf = null; }} />
+  <PagesView job={pagesOf} onclose={() => (pagesOf = null)} onview={(page, job) => { viewing = { job, page }; pagesOf = null; }} />
 {/if}
 {#if preview}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (preview = null)}>

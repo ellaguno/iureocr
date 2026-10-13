@@ -1,13 +1,17 @@
 <script lang="ts">
   import { openPath } from "@tauri-apps/plugin-opener";
   import { api } from "../lib/api";
-  import { addReadyFile, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
+  import { afterEdit, editTarget, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
   import RedactView from "./RedactView.svelte";
   import BatesDialog from "./BatesDialog.svelte";
   import { t, tn } from "../lib/i18n.svelte";
 
-  let { job, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number) => void } = $props();
+  let { job: initial, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number, job: Job) => void } = $props();
+
+  // La ventana sigue abierta tras cada edición y pasa a la copia de trabajo (`afterEdit`).
+  // svelte-ignore state_referenced_locally
+  let job = $state(initial);
 
   let selected = $state<Set<number>>(new Set());
   let tool = $state<"redact" | "bates" | null>(null);
@@ -106,7 +110,8 @@
   }
 
   let pages1 = $derived([...selected].sort((a, b) => a - b).map((i) => i + 1));
-  let sourcePdf = $derived(job.result?.pdfPath ?? job.path);
+  let target = $derived(editTarget(job));
+  let sourcePdf = $derived(target.path);
   let isPdf = $derived(sourcePdf.toLowerCase().endsWith(".pdf"));
 
   async function edit(op: "delete" | "keep" | "rotate" | "reorder", degrees?: number) {
@@ -114,12 +119,26 @@
     if (!pages.length) return;
     working = op;
     try {
-      const r = await api.pdfEditPages(sourcePdf, op, pages, degrees);
-      const made = addReadyFile(r.path);
-      toast(t("pagesView.done", { name: made.name, pages: tn("pages.count", r.pages) }), "success", 6000);
-      onclose();
+      const r = await api.pdfEditPages(target.path, op, pages, degrees, target.replace);
+      await switchTo(r.path);
+      toast(t("pagesView.done", { name: job.name, pages: tn("pages.count", r.pages) }), "success", 6000);
     } catch (e) {
       toast(String(e), "error", 9000);
+    } finally {
+      working = null;
+    }
+  }
+  /** Tras una edición: sigue en la copia de trabajo, con la selección y el orden a cero. */
+  async function switchTo(path: string) {
+    job = await afterEdit(job, path);
+    selected = new Set();
+    order = [];
+  }
+  async function toolDone(path: string) {
+    tool = null;
+    working = "tool";
+    try {
+      await switchTo(path);
     } finally {
       working = null;
     }
@@ -175,8 +194,8 @@
           class:drop-before={drag?.target === i && !drag.after && !drag.items.includes(i)}
           class:drop-after={drag?.target === i && drag.after && !drag.items.includes(i)}
           onpointerdown={(e) => onpointerdown(e, i)}
-          onclick={() => !isPdf && onview?.(i)}
-          ondblclick={() => onview?.(i)}
+          onclick={() => !isPdf && onview?.(i, job)}
+          ondblclick={() => onview?.(i, job)}
           title={t("pagesView.pageTitle", { n: i + 1 })}
         >
           {#if job.thumbs[i]}
@@ -196,7 +215,7 @@
     <div class="foot-row">
       <span class="hint">{working ? t("pagesView.writing") : allLoaded ? t("pagesView.dragHint") : t("pagesView.loadingThumbs")}</span>
       <span class="grow"></span>
-      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0)}><Icon name="eye" size={14} /> {t("common.view")}</button>{/if}
+      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0, job)}><Icon name="eye" size={14} /> {t("common.view")}</button>{/if}
       <button class="btn sm ghost" onclick={openPdf} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
       <button class="btn" onclick={onclose} disabled={!!working}>{t("common.close")}</button>
     </div>
@@ -204,9 +223,9 @@
 </div>
 
 {#if tool === "redact"}
-  <RedactView path={sourcePdf} name={job.name} {total} onclose={() => (tool = null)} ondone={() => ((tool = null), onclose())} />
+  <RedactView path={target.path} replace={target.replace} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
 {:else if tool === "bates"}
-  <BatesDialog path={sourcePdf} name={job.name} {total} onclose={() => (tool = null)} ondone={() => ((tool = null), onclose())} />
+  <BatesDialog path={target.path} replace={target.replace} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
 {/if}
 
 <style>

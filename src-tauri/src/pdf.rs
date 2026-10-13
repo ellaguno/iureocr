@@ -174,6 +174,39 @@ fn load(path: &Path) -> Result<lopdf::Document> {
     Ok(doc)
 }
 
+/// Dónde escribir una edición hecha desde la ventana de páginas. La primera edición de un
+/// archivo crea una copia de trabajo `<stem> - editado.pdf`; las siguientes (`replace`)
+/// reescriben esa copia: se escribe en un temporal junto a ella y luego se renombra encima,
+/// así un fallo a medias no la deja rota.
+pub fn edit_output(input: &Path, replace: bool) -> PathBuf {
+    if replace {
+        let name = input
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        input.with_file_name(format!(".{name}.iureocr-tmp"))
+    } else {
+        sibling_output(input, lang::pick(" - edited", " - editado"))
+    }
+}
+
+/// Termina una edición escrita en `written` (ver [`edit_output`]): con `replace`, la mueve
+/// encima de `input`. Devuelve la ruta final.
+pub fn commit_output(written: PathBuf, input: &Path, replace: bool) -> Result<PathBuf> {
+    if !replace {
+        return Ok(written);
+    }
+    std::fs::rename(&written, input).with_context(|| {
+        let _ = std::fs::remove_file(&written);
+        tr!(
+            "Could not replace {}",
+            "No se pudo reemplazar {}",
+            input.display()
+        )
+    })?;
+    Ok(input.to_path_buf())
+}
+
 /// Ruta libre `<stem><suffix>.pdf` junto al original (o « (2)», « (3)»… si existe).
 pub fn sibling_output(input: &Path, suffix: &str) -> PathBuf {
     let dir = input
@@ -296,13 +329,14 @@ pub fn rotate_pages(input: &Path, pages: &[u32], degrees: i64, output: &Path) ->
 }
 
 /// Edición de páginas: `op` = "delete" | "keep" | "rotate" | "reorder"; `pages` 1-based
-/// (en "reorder", todas las páginas en el orden nuevo). Escribe un archivo nuevo junto al
-/// original y devuelve su ruta y cuántas páginas tiene o se tocaron.
+/// (en "reorder", todas las páginas en el orden nuevo). Escribe en `output` o, sin él, en un
+/// archivo nuevo junto al original; devuelve su ruta y cuántas páginas tiene o se tocaron.
 pub fn edit(
     input: &Path,
     op: &str,
     pages: &[u32],
     degrees: Option<i64>,
+    output: Option<&Path>,
 ) -> Result<(PathBuf, usize)> {
     type Op<'a> = Box<dyn FnOnce(&Path) -> Result<usize> + 'a>;
     let (suffix, run): (&str, Op) = match op {
@@ -329,7 +363,7 @@ pub fn edit(
             )))
         }
     };
-    let output = sibling_output(input, suffix);
+    let output = output.map_or_else(|| sibling_output(input, suffix), Path::to_path_buf);
     let n = run(&output)?;
     Ok((output, n))
 }
