@@ -174,37 +174,82 @@ fn load(path: &Path) -> Result<lopdf::Document> {
     Ok(doc)
 }
 
-/// Dónde escribir una edición hecha desde la ventana de páginas. La primera edición de un
-/// archivo crea una copia de trabajo `<stem> - editado.pdf`; las siguientes (`replace`)
-/// reescriben esa copia: se escribe en un temporal junto a ella y luego se renombra encima,
-/// así un fallo a medias no la deja rota.
-pub fn edit_output(input: &Path, replace: bool) -> PathBuf {
-    if replace {
-        let name = input
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        input.with_file_name(format!(".{name}.iureocr-tmp"))
+/// Sesión de edición de la ventana de páginas: las ediciones se hacen sobre una copia
+/// temporal, fuera de la carpeta del usuario, hasta que se guarda o se descarta.
+pub fn session_start(input: &Path) -> Result<PathBuf> {
+    let dir = std::env::temp_dir().join("iureocr-edicion");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let session = dir.join(format!("{}-{stamp}.pdf", std::process::id()));
+    std::fs::copy(input, &session).with_context(|| {
+        tr!("Could not read {}", "No se pudo leer {}", input.display())
+    })?;
+    Ok(session)
+}
+
+/// Sólo se tocan archivos de sesión (para que la interfaz no pueda pedir borrar otros).
+fn check_session(session: &Path) -> Result<()> {
+    let dir = std::env::temp_dir().join("iureocr-edicion");
+    if session.parent() == Some(dir.as_path()) {
+        Ok(())
     } else {
-        sibling_output(input, lang::pick(" - edited", " - editado"))
+        Err(anyhow!("no es una sesión de edición: {}", session.display()))
     }
 }
 
-/// Termina una edición escrita en `written` (ver [`edit_output`]): con `replace`, la mueve
-/// encima de `input`. Devuelve la ruta final.
-pub fn commit_output(written: PathBuf, input: &Path, replace: bool) -> Result<PathBuf> {
-    if !replace {
-        return Ok(written);
+/// Temporal donde escribir la siguiente edición de la sesión (luego se renombra encima).
+pub fn session_step(session: &Path) -> Result<PathBuf> {
+    check_session(session)?;
+    Ok(session.with_extension("next.pdf"))
+}
+
+/// Cierra un paso: el resultado pasa a ser la sesión.
+pub fn session_commit(written: &Path, session: &Path) -> Result<()> {
+    std::fs::rename(written, session).map_err(|e| {
+        let _ = std::fs::remove_file(written);
+        anyhow!(e)
+    })
+}
+
+/// Guarda la sesión: como copia `<nombre> - editado.pdf` junto al original, o encima del
+/// original (`replace`). Devuelve la ruta escrita. La sesión sigue existiendo.
+pub fn session_save(session: &Path, original: &Path, replace: bool) -> Result<PathBuf> {
+    check_session(session)?;
+    let target = if replace {
+        original.to_path_buf()
+    } else {
+        sibling_output(original, lang::pick(" - edited", " - editado"))
+    };
+    // Primero junto al destino y luego renombrado: nunca queda un archivo a medias.
+    let name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = target.with_file_name(format!(".{name}.iureocr-tmp"));
+    std::fs::copy(session, &tmp)
+        .and_then(|_| std::fs::rename(&tmp, &target))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            anyhow!(tr!(
+                "Could not write {}: {e}",
+                "No se pudo escribir {}: {e}",
+                target.display()
+            ))
+        })?;
+    Ok(target)
+}
+
+/// Descarta una sesión.
+pub fn session_discard(session: &Path) -> Result<()> {
+    check_session(session)?;
+    let _ = std::fs::remove_file(session.with_extension("next.pdf"));
+    match std::fs::remove_file(session) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
     }
-    std::fs::rename(&written, input).with_context(|| {
-        let _ = std::fs::remove_file(&written);
-        tr!(
-            "Could not replace {}",
-            "No se pudo reemplazar {}",
-            input.display()
-        )
-    })?;
-    Ok(input.to_path_buf())
 }
 
 /// Ruta libre `<stem><suffix>.pdf` junto al original (o « (2)», « (3)»… si existe).
@@ -536,5 +581,37 @@ mod hilos {
         for h in hs {
             h.join().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod sesion {
+    use super::*;
+
+    #[test]
+    fn guardar_como_copia_o_reemplazar_y_descartar() {
+        let dir = std::env::temp_dir().join(format!("iureocr-sesion-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("doc.pdf");
+        std::fs::write(&original, b"v1").unwrap();
+
+        let s = session_start(&original).unwrap();
+        let step = session_step(&s).unwrap();
+        std::fs::write(&step, b"v2").unwrap();
+        session_commit(&step, &s).unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), b"v1", "el original no se toca");
+
+        let copy = session_save(&s, &original, false).unwrap();
+        assert_ne!(copy, original);
+        assert_eq!(std::fs::read(&copy).unwrap(), b"v2");
+        assert_eq!(session_save(&s, &original, true).unwrap(), original);
+        assert_eq!(std::fs::read(&original).unwrap(), b"v2");
+
+        session_discard(&s).unwrap();
+        assert!(!s.exists());
+        // Fuera de la carpeta de sesiones no se borra nada.
+        assert!(session_discard(&original).is_err());
+        assert!(original.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

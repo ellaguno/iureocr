@@ -49,6 +49,11 @@ pdfcraft-redact = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986
 pdfcraft-edit = { git = "https://github.com/storytold/pdfcraft", rev = "0a0986483378b57d62103a36490bd66166d32c8f" }
 iurefficient-connect = { git = "https://github.com/ellaguno/iurefficient-connect", tag = "v0.7.1" }
 
+# En `tauri dev`, las dependencias (pdfium-render, image, PdfCraft…) van optimizadas: sin
+# esto, testar una página escaneada tarda unas diez veces más que en la versión publicada.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 codegen-units = 1
 lto = true

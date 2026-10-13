@@ -5,7 +5,7 @@
   import { t, tn } from "../lib/i18n.svelte";
 
   /** Testado: se marcan zonas sobre la página y PdfCraft quita lo que hay debajo. */
-  let { path, replace, name, total, onclose, ondone }: { path: string; replace: boolean; name: string; total: number; onclose: () => void; ondone: (path: string) => void } = $props();
+  let { session, name, total, onclose, ondone }: { session: string; name: string; total: number; onclose: () => void; ondone: (changed: number[]) => void } = $props();
 
   let page = $state(0);
   let images = $state<Record<number, string>>({});
@@ -22,7 +22,7 @@
     const p = page;
     if (images[p]) return;
     api
-      .pdfThumbnails(path, [p], 1400)
+      .pdfThumbnails(session, [p], 1400)
       .then((r) => (images[p] = r[0]))
       .catch((e) => toast(t("viewer.renderFailed", { error: String(e) }), "error"));
   });
@@ -74,9 +74,9 @@
     }
     working = true;
     try {
-      const r = await api.pdfRedact(path, areas, replace);
-      toast(t("redact.done", { name: r.path.split(/[\\/]/).pop()!, areas: tn("redact.areas", r.areas), glyphs: r.glyphs, images: r.images }), "success", 8000);
-      ondone(r.path);
+      const r = await api.pdfRedact(session, areas);
+      toast(t("redact.done", { areas: tn("redact.areas", r.areas), glyphs: r.glyphs, images: r.images }), "success", 8000);
+      ondone([...new Set(areas.map((a) => a.page))]);
     } catch (e) {
       toast(String(e), "error", 10000);
     } finally {

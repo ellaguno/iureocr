@@ -44,8 +44,6 @@ export interface Job {
   saved?: { target: string; webUrl: string; fileNames: string[]; at: number };
   startedAt?: number;
   finishedAt?: number;
-  /** Copia de trabajo creada por una edición: las siguientes ediciones la reescriben. */
-  edited?: boolean;
 }
 
 export interface Toast {
@@ -209,18 +207,9 @@ export function addReadyFile(path: string): Job {
   return job;
 }
 
-/** Archivo sobre el que editar y si se reescribe (copia de trabajo sin OCR posterior). */
-export function editTarget(job: Job): { path: string; replace: boolean } {
-  return { path: job.result?.pdfPath ?? job.path, replace: !!job.edited && !job.result };
-}
-
-/** Tras una edición: si reescribió la copia de trabajo, la recarga; si creó una, la añade. */
-export async function afterEdit(job: Job, path: string): Promise<Job> {
-  if (path !== job.path) {
-    const made = addReadyFile(path);
-    made.edited = true;
-    return made;
-  }
+/** Vuelve a leer un archivo que cambió en disco (p. ej. tras reemplazarlo con una edición). */
+export async function reloadJob(job: Job): Promise<void> {
+  const path = job.path;
   job.thumbs = {};
   job.pages = null;
   job.pageSizes = [];
@@ -234,7 +223,6 @@ export async function afterEdit(job: Job, path: string): Promise<Job> {
     job.pages = 0;
     toast(`${job.name}: ${e}`, "error", 8000);
   }
-  return job;
 }
 
 export function isActive(job: Job): boolean {

@@ -239,13 +239,18 @@ export const api = {
   pdfPageSizes: (path: string) => invoke<[number, number][]>("pdf_page_sizes", { path }),
   /** Miniaturas JPEG (data URL) de las páginas `indices` (desde 0); una imagen devuelve una sola. */
   pdfThumbnails: (path: string, indices: number[], width: number) => invoke<string[]>("pdf_thumbnails", { path, indices, width }),
-  /** Quitar, conservar, rotar o reordenar páginas (1-based); crea o reescribe la copia de trabajo. */
-  pdfEditPages: (path: string, op: "delete" | "keep" | "rotate" | "reorder", pages: number[], degrees: number | undefined, replace: boolean) =>
-    invoke<PdfEditResult>("pdf_edit_pages", { path, op, pages, degrees: degrees ?? null, replace }),
-  /** Testado definitivo de las zonas marcadas (PdfCraft); escribe un PDF nuevo. */
-  pdfRedact: (path: string, areas: RedactArea[], replace: boolean) => invoke<RedactResult>("pdf_redact", { path, areas, replace }),
-  /** Numeración Bates de todas las páginas (PdfCraft); escribe un PDF nuevo. */
-  pdfBates: (path: string, options: BatesOptions, replace: boolean) => invoke<BatesResult>("pdf_bates", { path, options, replace }),
+  /** Abre una sesión de edición: copia temporal de `path` sobre la que se hacen las ediciones. */
+  pdfSessionStart: (path: string) => invoke<string>("pdf_session_start", { path }),
+  /** Guarda la sesión como `<nombre> - editado.pdf` o encima de `original`; devuelve la ruta. */
+  pdfSessionSave: (session: string, original: string, replace: boolean) => invoke<string>("pdf_session_save", { session, original, replace }),
+  pdfSessionDiscard: (session: string) => invoke<void>("pdf_session_discard", { session }),
+  /** Quitar, conservar, rotar o reordenar páginas (1-based) en la sesión. */
+  pdfEditPages: (session: string, op: "delete" | "keep" | "rotate" | "reorder", pages: number[], degrees?: number) =>
+    invoke<PdfEditResult>("pdf_edit_pages", { session, op, pages, degrees: degrees ?? null }),
+  /** Testado definitivo de las zonas marcadas (PdfCraft), en la sesión. */
+  pdfRedact: (session: string, areas: RedactArea[]) => invoke<RedactResult>("pdf_redact", { session, areas }),
+  /** Numeración Bates de todas las páginas (PdfCraft), en la sesión. */
+  pdfBates: (session: string, options: BatesOptions) => invoke<BatesResult>("pdf_bates", { session, options }),
   iureLogin: (password: string, totpCode?: string, totpToken?: string) =>
     invoke<IureLoginResult>("iure_login", { password, totpCode: totpCode ?? null, totpToken: totpToken ?? null }),
   iureSessionStatus: () => invoke<IureSessionStatus>("iure_session_status"),

@@ -378,90 +378,108 @@ struct PdfEditResult {
     pages: usize,
 }
 
-/// Edición de páginas: `op` = "delete" | "keep" | "rotate" | "reorder"; `pages` 1-based
-/// (en "reorder", todas las páginas en el orden nuevo). Con `replace` reescribe `path` (una
-/// copia de trabajo); sin él crea `<nombre> - editado.pdf` (ver `pdf::edit_output`).
+/// Ejecuta un paso de edición sobre la sesión `session` (ver `pdf::session_start`).
+async fn session_edit<T: Send + 'static>(
+    session: String,
+    f: impl FnOnce(&Path, &Path) -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let session = Path::new(&session);
+        let step = pdf::session_step(session)?;
+        let r = f(session, &step)?;
+        pdf::session_commit(&step, session)?;
+        Ok(r)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
+}
+
+/// Abre una sesión de edición sobre una copia temporal de `path`.
+#[tauri::command]
+async fn pdf_session_start(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pdf::session_start(Path::new(&path)).map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+/// Guarda la sesión como copia o encima del original (`replace`); devuelve la ruta.
+#[tauri::command]
+async fn pdf_session_save(session: String, original: String, replace: bool) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = pdf::session_save(Path::new(&session), Path::new(&original), replace)?;
+        log::info!("PDF editado guardado en {} (reemplazar={replace})", out.display());
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn pdf_session_discard(session: String) -> Result<(), String> {
+    pdf::session_discard(Path::new(&session)).map_err(|e| format!("{e:#}"))
+}
+
+/// Edición de páginas en la sesión: `op` = "delete" | "keep" | "rotate" | "reorder";
+/// `pages` 1-based (en "reorder", todas las páginas en el orden nuevo).
 #[tauri::command]
 async fn pdf_edit_pages(
-    path: String,
+    session: String,
     op: String,
     pages: Vec<u32>,
     degrees: Option<i64>,
-    replace: bool,
 ) -> Result<PdfEditResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let input = Path::new(&path);
-        let target = pdf::edit_output(input, replace);
-        let (written, n) = pdf::edit(input, &op, &pages, degrees, Some(&target))?;
-        let output = pdf::commit_output(written, input, replace)?;
-        log::info!(
-            "PDF {op} {} → {} ({n} páginas)",
-            input.display(),
-            output.display()
-        );
+    session_edit(session, move |input, out| {
+        let t = std::time::Instant::now();
+        let (_, n) = pdf::edit(input, &op, &pages, degrees, Some(out))?;
+        log::info!("PDF {op} en sesión {} ({n} páginas, {:?})", input.display(), t.elapsed());
         Ok(PdfEditResult {
-            path: output.to_string_lossy().into_owned(),
+            path: input.to_string_lossy().into_owned(),
             pages: n,
         })
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e: anyhow::Error| format!("{e:#}"))
 }
 
-/// Testado: quita definitivamente lo que hay bajo las zonas marcadas (PdfCraft).
+/// Testado en la sesión: quita definitivamente lo que hay bajo las zonas (PdfCraft).
 #[tauri::command]
 async fn pdf_redact(
-    path: String,
+    session: String,
     areas: Vec<editar::RedactArea>,
-    replace: bool,
 ) -> Result<editar::RedactResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let input = Path::new(&path);
-        let target = pdf::edit_output(input, replace);
-        let mut r = editar::redact(input, &areas, &target)?;
-        let output = pdf::commit_output(target, input, replace)?;
-        r.path = output.to_string_lossy().into_owned();
+    session_edit(session, move |input, out| {
+        let t = std::time::Instant::now();
+        let mut r = editar::redact(input, &areas, out)?;
+        r.path = input.to_string_lossy().into_owned();
         log::info!(
-            "PDF testado {} → {} ({} zonas, {} caracteres, {} imágenes)",
-            input.display(),
-            output.display(),
+            "PDF testado en sesión ({} zonas, {} caracteres, {} imágenes, {:?})",
             r.areas,
             r.glyphs,
-            r.images
+            r.images,
+            t.elapsed()
         );
         Ok(r)
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e: anyhow::Error| format!("{e:#}"))
 }
 
-/// Numeración Bates de todas las páginas (PdfCraft).
+/// Numeración Bates de todas las páginas, en la sesión (PdfCraft).
 #[tauri::command]
 async fn pdf_bates(
-    path: String,
+    session: String,
     options: editar::BatesOptions,
-    replace: bool,
 ) -> Result<editar::BatesResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let input = Path::new(&path);
-        let target = pdf::edit_output(input, replace);
-        let mut r = editar::bates(input, &options, &target)?;
-        let output = pdf::commit_output(target, input, replace)?;
-        r.path = output.to_string_lossy().into_owned();
-        log::info!(
-            "PDF Bates {} → {} ({}–{})",
-            input.display(),
-            output.display(),
-            r.first,
-            r.last
-        );
+    session_edit(session, move |input, out| {
+        let mut r = editar::bates(input, &options, out)?;
+        r.path = input.to_string_lossy().into_owned();
+        log::info!("PDF Bates en sesión ({}–{})", r.first, r.last);
         Ok(r)
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e: anyhow::Error| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -1228,6 +1246,9 @@ pub fn run() {
             pdf_edit_pages,
             pdf_redact,
             pdf_bates,
+            pdf_session_start,
+            pdf_session_save,
+            pdf_session_discard,
             iure_login,
             iure_session_status,
             iure_logout,

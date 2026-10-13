@@ -1,31 +1,59 @@
 <script lang="ts">
   import { openPath } from "@tauri-apps/plugin-opener";
   import { api } from "../lib/api";
-  import { afterEdit, editTarget, isActive, loadThumbs, toast, type Job } from "../lib/state.svelte";
+  import { addReadyFile, isActive, loadThumbs, reloadJob, THUMB_WIDTH, toast, type Job } from "../lib/state.svelte";
   import Icon from "./Icon.svelte";
   import RedactView from "./RedactView.svelte";
   import BatesDialog from "./BatesDialog.svelte";
   import { t, tn } from "../lib/i18n.svelte";
+  import { onDestroy } from "svelte";
 
-  let { job: initial, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number, job: Job) => void } = $props();
+  let { job, onclose, onview }: { job: Job; onclose: () => void; onview?: (page: number) => void } = $props();
 
-  // La ventana sigue abierta tras cada edición y pasa a la copia de trabajo (`afterEdit`).
-  // svelte-ignore state_referenced_locally
-  let job = $state(initial);
+  // Sesión de edición: la primera edición copia el PDF a un temporal oculto y todas las
+  // ediciones se hacen ahí, hasta «Guardar como copia», «Reemplazar original» o descartar.
+  let session = $state<string | null>(null);
+  let changes = $state(0);
+  let sPages = $state(0);
+  let sThumbs = $state<Record<number, string>>({});
+  /** Sube tras cada edición para volver a pedir las miniaturas que falten. */
+  let version = $state(0);
+  let confirm = $state<"replace" | "discard" | null>(null);
+  let rotMenu = $state(false);
 
   let selected = $state<Set<number>>(new Set());
   let tool = $state<"redact" | "bates" | null>(null);
   let working = $state<string | null>(null);
-  let total = $derived(job.pages ?? 0);
+  let total = $derived(session ? sPages : (job.pages ?? 0));
+  let thumbs = $derived(session ? sThumbs : job.thumbs);
   /** Página en curso del OCR (1-based), para resaltarla. */
   let current = $derived(isActive(job) && job.total ? job.current : 0);
-  let allLoaded = $derived(total > 0 && Object.keys(job.thumbs).length >= total);
+  let allLoaded = $derived(total > 0 && Object.keys(thumbs).length >= total);
+
+  async function loadSessionThumbs(from: number, to: number) {
+    const s = session;
+    const indices: number[] = [];
+    for (let i = from; i < Math.min(to, sPages); i++) if (!sThumbs[i]) indices.push(i);
+    if (!s || !indices.length) return;
+    try {
+      const imgs = await api.pdfThumbnails(s, indices, THUMB_WIDTH);
+      if (s === session) indices.forEach((i, k) => (sThumbs[i] = imgs[k]));
+    } catch (e) {
+      console.warn("miniaturas:", e);
+    }
+  }
 
   // Carga las miniaturas por tandas mientras el modal está abierto.
   $effect(() => {
+    void version;
+    const n = total;
+    const inSession = !!session;
     let cancelled = false;
     (async () => {
-      for (let from = 0; from < total && !cancelled; from += 12) await loadThumbs(job, from, from + 12);
+      for (let from = 0; from < n && !cancelled; from += 12) {
+        if (inSession) await loadSessionThumbs(from, from + 12);
+        else await loadThumbs(job, from, from + 12);
+      }
     })();
     return () => {
       cancelled = true;
@@ -110,39 +138,127 @@
   }
 
   let pages1 = $derived([...selected].sort((a, b) => a - b).map((i) => i + 1));
-  let target = $derived(editTarget(job));
-  let sourcePdf = $derived(target.path);
+  /** El PDF que se edita: el resultado del OCR si lo hay; si no, el archivo abierto. */
+  let sourcePdf = $derived(job.result?.pdfPath ?? job.path);
   let isPdf = $derived(sourcePdf.toLowerCase().endsWith(".pdf"));
 
+  async function ensureSession(): Promise<string> {
+    if (session) return session;
+    const s = await api.pdfSessionStart(sourcePdf);
+    sPages = job.pages ?? 0;
+    sThumbs = { ...job.thumbs };
+    session = s;
+    return s;
+  }
+
+  /**
+   * Tras una edición: miniaturas que se conservan. `from(i)` da la página de antes que es
+   * ahora la `i`, o null si cambió y hay que dibujarla otra vez.
+   */
+  function applied(pages: number, from: (i: number) => number | null) {
+    const old = sThumbs;
+    const next: Record<number, string> = {};
+    for (let i = 0; i < pages; i++) {
+      const k = from(i);
+      if (k !== null && old[k]) next[i] = old[k];
+    }
+    sThumbs = next;
+    sPages = pages;
+    changes += 1;
+    selected = new Set();
+    order = [];
+    confirm = null;
+    version += 1;
+  }
+
   async function edit(op: "delete" | "keep" | "rotate" | "reorder", degrees?: number) {
+    rotMenu = false;
     const pages = op === "reorder" ? order.map((i) => i + 1) : pages1;
     if (!pages.length) return;
     working = op;
     try {
-      const r = await api.pdfEditPages(target.path, op, pages, degrees, target.replace);
-      await switchTo(r.path);
-      toast(t("pagesView.done", { name: job.name, pages: tn("pages.count", r.pages) }), "success", 6000);
+      const s = await ensureSession();
+      const before = sPages;
+      await api.pdfEditPages(s, op, pages, degrees);
+      const set = new Set(pages.map((p) => p - 1));
+      if (op === "rotate") applied(before, (i) => (set.has(i) ? null : i));
+      else if (op === "reorder") applied(before, (i) => pages[i] - 1);
+      else {
+        const kept = Array.from({ length: before }, (_, i) => i).filter((i) => (op === "keep" ? set.has(i) : !set.has(i)));
+        applied(kept.length, (i) => kept[i]);
+      }
     } catch (e) {
       toast(String(e), "error", 9000);
     } finally {
       working = null;
     }
   }
-  /** Tras una edición: sigue en la copia de trabajo, con la selección y el orden a cero. */
-  async function switchTo(path: string) {
-    job = await afterEdit(job, path);
-    selected = new Set();
-    order = [];
-  }
-  async function toolDone(path: string) {
-    tool = null;
-    working = "tool";
+  async function openTool(which: "redact" | "bates") {
+    working = which;
     try {
-      await switchTo(path);
+      await ensureSession();
+      tool = which;
+    } catch (e) {
+      toast(String(e), "error", 9000);
     } finally {
       working = null;
     }
   }
+  /** `changed`: páginas (0-based) que hay que volver a dibujar; null = todas. */
+  function toolDone(changed: number[] | null) {
+    tool = null;
+    const set = new Set(changed ?? []);
+    applied(sPages, (i) => (changed === null || set.has(i) ? null : i));
+  }
+
+  async function save(replace: boolean) {
+    if (!session) return;
+    if (replace && confirm !== "replace") {
+      confirm = "replace";
+      return;
+    }
+    working = "save";
+    try {
+      const out = await api.pdfSessionSave(session, sourcePdf, replace);
+      await discard();
+      if (replace) {
+        if (out === job.path) await reloadJob(job);
+        toast(t("pagesView.savedOver", { name: job.name }), "success", 6000);
+      } else {
+        const made = addReadyFile(out);
+        toast(t("pagesView.savedCopy", { name: made.name }), "success", 6000);
+      }
+      onclose();
+    } catch (e) {
+      toast(String(e), "error", 9000);
+    } finally {
+      working = null;
+      confirm = null;
+    }
+  }
+  async function discard() {
+    const s = session;
+    session = null;
+    changes = 0;
+    sThumbs = {};
+    order = [];
+    selected = new Set();
+    if (s) await api.pdfSessionDiscard(s).catch(() => {});
+  }
+  /** Cerrar: con cambios sin guardar, primero se pregunta. */
+  function tryClose() {
+    if (working) return;
+    if (changes && confirm !== "discard") {
+      confirm = "discard";
+      return;
+    }
+    void discard();
+    onclose();
+  }
+  onDestroy(() => {
+    if (session) void api.pdfSessionDiscard(session).catch(() => {});
+  });
+
   async function openPdf() {
     try {
       await openPath(sourcePdf);
@@ -152,11 +268,11 @@
   }
 </script>
 
-<div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && !working && onclose()}>
+<div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && tryClose()}>
   <div class="modal card" role="dialog" aria-modal="true" aria-label={t("common.pages")}>
     <div class="head">
-      <h2><Icon name="layers" size={17} /> {job.name} <span class="hint">· {tn("pages.count", total)}{job.result?.pdfPath ? ` · ${t("common.withOcr")}` : ""}</span></h2>
-      <button class="btn icon ghost" onclick={onclose} disabled={!!working} aria-label={t("common.close")}><Icon name="x" size={16} /></button>
+      <h2><Icon name="layers" size={17} /> {job.name} <span class="hint">· {tn("pages.count", total)}{job.result?.pdfPath ? ` · ${t("common.withOcr")}` : ""}</span>{#if changes}<span class="pill warn">{tn("pagesView.unsaved", changes)}</span>{/if}</h2>
+      <button class="btn icon ghost" onclick={tryClose} disabled={!!working} aria-label={t("common.close")}><Icon name="x" size={16} /></button>
     </div>
     {#if isPdf}
       <div class="tools">
@@ -173,10 +289,20 @@
         <button class="btn sm ghost" onclick={() => moveSelected("start")} disabled={!selected.size || !!working} title={t("pagesView.toStartTitle")}>{t("pagesView.toStart")}</button>
         <button class="btn sm ghost" onclick={() => moveSelected("end")} disabled={!selected.size || !!working} title={t("pagesView.toEndTitle")}>{t("pagesView.toEnd")}</button>
         <button class="btn sm ghost" onclick={reverseOrder} disabled={total < 2 || !!working} title={t("pagesView.reverseTitle")}>{t("pagesView.reverse")}</button>
-        <button class="btn sm" onclick={() => edit("rotate", 90)} disabled={!selected.size || !!working} title={t("pagesView.rotateTitle")}><Icon name="refresh" size={14} /> {t("pagesView.rotate")}</button>
+        <span class="split">
+          <button class="btn sm" onclick={() => edit("rotate", 90)} disabled={!selected.size || !!working} title={t("pagesView.rotateTitle")}><Icon name="refresh" size={14} /> {t("pagesView.rotate")}</button>
+          <button class="btn sm caret" onclick={() => (rotMenu = !rotMenu)} disabled={!selected.size || !!working} aria-label={t("pagesView.rotateMore")} aria-expanded={rotMenu}>▾</button>
+          {#if rotMenu}
+            <div class="menu card" role="menu">
+              <button role="menuitem" onclick={() => edit("rotate", 90)}>{t("pagesView.rotate90")}</button>
+              <button role="menuitem" onclick={() => edit("rotate", 180)}>{t("pagesView.rotate180")}</button>
+              <button role="menuitem" onclick={() => edit("rotate", 270)}>{t("pagesView.rotate270")}</button>
+            </div>
+          {/if}
+        </span>
         <button class="btn sm" onclick={() => edit("keep")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.keepTitle")}><Icon name="copy" size={14} /> {t("pagesView.keep")}</button>
-        <button class="btn sm" onclick={() => (tool = "redact")} disabled={!total || !!working || isActive(job)} title={t("pagesView.redactTitle")}><Icon name="redact" size={14} /> {t("pagesView.redact")}</button>
-        <button class="btn sm" onclick={() => (tool = "bates")} disabled={!total || !!working || isActive(job)} title={t("pagesView.batesTitle")}><Icon name="hash" size={14} /> {t("pagesView.bates")}</button>
+        <button class="btn sm" onclick={() => openTool("redact")} disabled={!total || !!working || isActive(job)} title={t("pagesView.redactTitle")}><Icon name="redact" size={14} /> {t("pagesView.redact")}</button>
+        <button class="btn sm" onclick={() => openTool("bates")} disabled={!total || !!working || isActive(job)} title={t("pagesView.batesTitle")}><Icon name="hash" size={14} /> {t("pagesView.bates")}</button>
         <button class="btn sm danger" onclick={() => edit("delete")} disabled={!selected.size || selected.size === total || !!working} title={t("pagesView.deleteTitle")}><Icon name="trash" size={14} /> {t("pagesView.delete")}</button>
         {/if}
       </div>
@@ -194,12 +320,12 @@
           class:drop-before={drag?.target === i && !drag.after && !drag.items.includes(i)}
           class:drop-after={drag?.target === i && drag.after && !drag.items.includes(i)}
           onpointerdown={(e) => onpointerdown(e, i)}
-          onclick={() => !isPdf && onview?.(i, job)}
-          ondblclick={() => onview?.(i, job)}
+          onclick={() => !isPdf && onview?.(i)}
+          ondblclick={() => !changes && onview?.(i)}
           title={t("pagesView.pageTitle", { n: i + 1 })}
         >
-          {#if job.thumbs[i]}
-            <img src={job.thumbs[i]} alt={t("page.n", { n: i + 1 })} loading="lazy" />
+          {#if thumbs[i]}
+            <img src={thumbs[i]} alt={t("page.n", { n: i + 1 })} loading="lazy" />
           {:else}
             <div class="ph"><span class="spin"><Icon name="loader" size={16} /></span></div>
           {/if}
@@ -213,19 +339,32 @@
       {/if}
     </div>
     <div class="foot-row">
-      <span class="hint">{working ? t("pagesView.writing") : allLoaded ? t("pagesView.dragHint") : t("pagesView.loadingThumbs")}</span>
-      <span class="grow"></span>
-      {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0, job)}><Icon name="eye" size={14} /> {t("common.view")}</button>{/if}
-      <button class="btn sm ghost" onclick={openPdf} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
-      <button class="btn" onclick={onclose} disabled={!!working}>{t("common.close")}</button>
+      {#if confirm === "discard"}
+        <span class="hint warn-text">{t("pagesView.discardAsk")}</span>
+        <span class="grow"></span>
+        <button class="btn sm" onclick={() => (confirm = null)}>{t("pagesView.keepEditing")}</button>
+        <button class="btn sm danger" onclick={tryClose}><Icon name="trash" size={14} /> {t("pagesView.discard")}</button>
+      {:else if changes}
+        <span class="hint">{working ? t("pagesView.writing") : confirm === "replace" ? t("pagesView.replaceAsk") : t("pagesView.sessionHint")}</span>
+        <span class="grow"></span>
+        <button class="btn sm ghost" onclick={() => (confirm = "discard")} disabled={!!working}>{t("pagesView.discard")}</button>
+        <button class="btn sm" onclick={() => save(false)} disabled={!!working} title={t("pagesView.saveCopyTitle")}><Icon name="copy" size={14} /> {t("pagesView.saveCopy")}</button>
+        <button class="btn sm primary" class:danger-fill={confirm === "replace"} onclick={() => save(true)} disabled={!!working} title={t("pagesView.replaceTitle")}><Icon name="check" size={14} /> {confirm === "replace" ? t("pagesView.replaceConfirm") : t("pagesView.replace")}</button>
+      {:else}
+        <span class="hint">{working ? t("pagesView.writing") : allLoaded ? t("pagesView.dragHint") : t("pagesView.loadingThumbs")}</span>
+        <span class="grow"></span>
+        {#if onview}<button class="btn sm ghost" onclick={() => onview([...selected].sort((a, b) => a - b)[0] ?? 0)}><Icon name="eye" size={14} /> {t("common.view")}</button>{/if}
+        <button class="btn sm ghost" onclick={openPdf} title={t("common.openWithSystem")}><Icon name="external" size={14} /> {t("common.openOutside")}</button>
+        <button class="btn" onclick={tryClose} disabled={!!working}>{t("common.close")}</button>
+      {/if}
     </div>
   </div>
 </div>
 
 {#if tool === "redact"}
-  <RedactView path={target.path} replace={target.replace} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
+  <RedactView session={session!} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
 {:else if tool === "bates"}
-  <BatesDialog path={target.path} replace={target.replace} name={job.name} {total} onclose={() => (tool = null)} ondone={toolDone} />
+  <BatesDialog session={session!} name={job.name} {total} onclose={() => (tool = null)} ondone={() => toolDone(null)} />
 {/if}
 
 <style>
@@ -255,5 +394,14 @@
   .cur { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); font-size: 11px; background: var(--warn); color: #fff; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
   .empty { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; justify-content: center; padding: 40px; color: var(--muted); }
   .spin { display: inline-flex; animation: spin 1s linear infinite; }
+  .split { position: relative; display: inline-flex; }
+  .split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .split .caret { border-top-left-radius: 0; border-bottom-left-radius: 0; padding-left: 6px; padding-right: 6px; margin-left: 1px; }
+  .menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 5; display: flex; flex-direction: column; padding: 4px; min-width: 190px; }
+  .menu button { text-align: left; padding: 7px 10px; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  .menu button:hover { background: var(--surface-2); }
+  .head .pill { margin-left: 4px; }
+  .warn-text { color: var(--warn); font-weight: 600; }
+  .btn.primary.danger-fill, .btn.primary.danger-fill:hover:not(:disabled) { background: var(--danger); color: #fff; }
   .foot-row { display: flex; align-items: center; gap: 8px; padding: 10px 18px 14px; }
 </style>

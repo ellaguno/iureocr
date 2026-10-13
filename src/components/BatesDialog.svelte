@@ -5,7 +5,7 @@
   import { t } from "../lib/i18n.svelte";
 
   /** Numeración Bates de todas las páginas con PdfCraft. */
-  let { path, replace, name, total, onclose, ondone }: { path: string; replace: boolean; name: string; total: number; onclose: () => void; ondone: (path: string) => void } = $props();
+  let { session, name, total, onclose, ondone }: { session: string; name: string; total: number; onclose: () => void; ondone: () => void } = $props();
 
   let o = $state<BatesOptions>({ prefix: "", suffix: "", digits: 6, start: 1, position: 5, fontSize: 9 });
   let working = $state(false);
@@ -18,9 +18,9 @@
   async function apply() {
     working = true;
     try {
-      const r = await api.pdfBates(path, { ...o, start: Math.floor(o.start), digits: Math.floor(o.digits) }, replace);
-      toast(t("bates.done", { name: r.path.split(/[\\/]/).pop()!, first: r.first, last: r.last }), "success", 8000);
-      ondone(r.path);
+      const r = await api.pdfBates(session, { ...o, start: Math.floor(o.start), digits: Math.floor(o.digits) });
+      toast(t("bates.done", { first: r.first, last: r.last }), "success", 8000);
+      ondone();
     } catch (e) {
       toast(String(e), "error", 10000);
     } finally {
