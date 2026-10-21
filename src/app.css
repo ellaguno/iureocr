@@ -12,6 +12,8 @@
   --accent-hover: #1d47a8;
   --accent-soft: #e7edfb;
   --accent-text: #ffffff;
+  --selection-bg: #b9cdf6;
+  --selection-text: #0b1530;
   --success: #15803d;
   --success-soft: #dcfce7;
   --danger: #b91c1c;
@@ -39,6 +41,8 @@
   --accent-hover: #88adff;
   --accent-soft: #1d2b4d;
   --accent-text: #0b1020;
+  --selection-bg: #3b66c4;
+  --selection-text: #ffffff;
   --success: #4ade80;
   --success-soft: #14301f;
   --danger: #f87171;
@@ -70,7 +74,9 @@ p { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; border: none; background: none; padding: 0; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
-::selection { background: var(--accent-soft); }
+/* Color de texto explícito: en modo oscuro WebKitGTK dejaba el texto
+   seleccionado casi del mismo tono que el fondo de la selección. */
+::selection { background: var(--selection-bg); color: var(--selection-text); }
 
 /* Botones */
 .btn {
