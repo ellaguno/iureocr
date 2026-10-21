@@ -5,6 +5,15 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.6.1] — 2026-10-21
+
+### Corregido
+
+- **Selección de texto en modo oscuro.** El texto seleccionado casi no se veía:
+  el fondo de la selección era del tono del panel y el texto no tenía color
+  propio. Ahora la selección es azul con texto blanco en oscuro y azul claro con
+  texto oscuro en claro.
+
 ## [0.6.0] — 2026-10-12
 
 ### Añadido
