@@ -130,6 +130,7 @@ jobs:
           $manifest = Get-Content assets\windows\msix\AppxManifest.xml -Raw
           $manifest = $manifest.Replace('@IDENTITY_NAME@', $identity).Replace('@PUBLISHER@', $publisher)
           $manifest = $manifest.Replace('@PUBLISHER_DISPLAY_NAME@', $display).Replace('@VERSION@', $version)
+          [xml]$manifest | Out-Null  # falla aquí, con un mensaje claro, si el XML no es válido
           Set-Content "$root\AppxManifest.xml" $manifest -Encoding utf8
 
           # resources.pri: elige los iconos sin fondo (altform-unplated) de la barra de tareas.

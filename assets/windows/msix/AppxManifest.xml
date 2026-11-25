@@ -62,7 +62,7 @@
           </uap:Protocol>
         </uap:Extension>
         <!-- `iureocr.exe` en el PATH: es lo que Claude Desktop, VS Code y otros clientes
-             MCP lanzan (`iureocr.exe --mcp`). Un ejecutable dentro de WindowsApps no se
+             MCP lanzan como servidor (opción de línea de órdenes «mcp»). Un ejecutable dentro de WindowsApps no se
              puede lanzar por su ruta, y además la ruta cambia con cada versión. -->
         <uap3:Extension Category="windows.appExecutionAlias" Executable="IureOCR.exe" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias>
