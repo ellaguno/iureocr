@@ -470,11 +470,15 @@
     <div class="grid2">
       <div class="field">
         <span class="label">{t("settings.updates")}</span>
+        {#if app.sys?.store}
+        <span class="hint">{t("settings.updatesStore")}</span>
+        {:else}
         <div class="row">
           <button class="switch" class:on={s.checkUpdates} aria-label={t("settings.updatesAria")} onclick={() => saveSettings({ checkUpdates: !s.checkUpdates })}></button>
           <span class="hint">{t("settings.updatesHint")}</span>
           <button class="btn sm ghost" onclick={checkUpdates} disabled={checkingUpdates}><Icon name="refresh" size={14} /> {t("settings.checkNow")}</button>
         </div>
+        {/if}
       </div>
     </div>
     <div class="sys">

@@ -81,6 +81,106 @@ jobs:
           projectPath: .
           args: ${{ matrix.args }}
 
+      # --- Paquete MSIX para Microsoft Store (Windows) ------------------------------
+      # Lo mismo que instala el NSIS (IureOCR.exe + resources\: pdfium, Tesseract y los
+      # modelos spa/eng/osd) con el manifiesto de assets/windows/msix. Dos artefactos, que
+      # no van a la release: `msix-store` (sin firmar, para Partner Center; la Store lo
+      # firma) y `msix-prueba` (firmado con un certificado de prueba, más su .cer).
+      - name: Paquete MSIX (Microsoft Store)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:MSIX_IDENTITY_NAME -or -not $env:MSIX_PUBLISHER -or -not $env:MSIX_PUBLISHER_DISPLAY_NAME) {
+            Write-Output "::warning::Faltan las variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER o MSIX_PUBLISHER_DISPLAY_NAME: el .msix lleva una identidad de prueba y Partner Center lo rechazará."
+          }
+          $identity = if ($env:MSIX_IDENTITY_NAME) { $env:MSIX_IDENTITY_NAME } else { 'Iurefficient.IureOCR' }
+          $publisher = if ($env:MSIX_PUBLISHER) { $env:MSIX_PUBLISHER } else { 'CN=Iurefficient' }
+          $display = if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $env:MSIX_PUBLISHER_DISPLAY_NAME } else { 'Iurefficient' }
+          # La Store no acepta un primer número 0 y exige el cuarto en 0: 0.6.1 → 1.6.1.0
+          # (mismo esquema que Iurefficient Apps e IureProject). La 1.0.0 será 2.0.0.0.
+          $app = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          $parts = ($app -replace '-.*$', '').Split('.')
+          $version = "$([int]$parts[0] + 1).$($parts[1]).$($parts[2]).0"
+          Write-Output "Versión de la app: $app · versión del paquete: $version"
+          # Los valores van dentro de atributos XML.
+          $identity = [System.Security.SecurityElement]::Escape($identity)
+          $publisher = [System.Security.SecurityElement]::Escape($publisher)
+          $display = [System.Security.SecurityElement]::Escape($display)
+
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
+            Where-Object { $_.Name -match '^10\.' -and (Test-Path "$($_.FullName)\x64\makeappx.exe") } |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          $tools = "$($sdk.FullName)\x64"
+          Write-Output "Windows SDK: $tools"
+
+          $root = 'msix\paquete'
+          New-Item -ItemType Directory -Force $root, msix\store, msix\prueba | Out-Null
+          Copy-Item -Recurse assets\windows\msix\Assets "$root\Assets"
+          # Como en el NSIS: el ejecutable con el nombre del producto y resources\ al lado.
+          Copy-Item src-tauri\target\release\iureocr.exe "$root\IureOCR.exe"
+          Copy-Item -Recurse src-tauri\resources "$root\resources"
+          foreach ($f in 'resources\tesseract\tesseract.exe', 'resources\tessdata\spa.traineddata', 'resources\tessdata\eng.traineddata', 'resources\pdfium\pdfium.dll') {
+            if (-not (Test-Path "$root\$f")) { Write-Output "::error::Falta $f en el paquete MSIX"; exit 1 }
+          }
+          $manifest = Get-Content assets\windows\msix\AppxManifest.xml -Raw
+          $manifest = $manifest.Replace('@IDENTITY_NAME@', $identity).Replace('@PUBLISHER@', $publisher)
+          $manifest = $manifest.Replace('@PUBLISHER_DISPLAY_NAME@', $display).Replace('@VERSION@', $version)
+          Set-Content "$root\AppxManifest.xml" $manifest -Encoding utf8
+
+          # resources.pri: elige los iconos sin fondo (altform-unplated) de la barra de tareas.
+          & "$tools\makepri.exe" createconfig /cf msix\priconfig.xml /dq es-MX /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$tools\makepri.exe" new /pr $root /cf msix\priconfig.xml /mn "$root\AppxManifest.xml" /of "$root\resources.pri" /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$tools\makeappx.exe" pack /d $root /p msix\store\iureocr-windows-x64.msix /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Copia de prueba: certificado autofirmado con el mismo Publisher.
+          $cert = New-SelfSignedCertificate -Type Custom -Subject $publisher -KeyUsage DigitalSignature `
+            -FriendlyName 'IureOCR (prueba)' -CertStoreLocation Cert:\CurrentUser\My `
+            -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+          $pass = ConvertTo-SecureString -String 'prueba' -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath msix\prueba.pfx -Password $pass | Out-Null
+          Export-Certificate -Cert $cert -FilePath msix\prueba\iureocr-prueba.cer | Out-Null
+          Copy-Item msix\store\iureocr-windows-x64.msix msix\prueba\iureocr-windows-x64-prueba.msix
+          & "$tools\signtool.exe" sign /fd SHA256 /f msix\prueba.pfx /p prueba msix\prueba\iureocr-windows-x64-prueba.msix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item msix\prueba.pfx
+
+          # Prueba: instalar la copia firmada, hacer OCR por MCP con el alias y desinstalar.
+          Import-Certificate -FilePath msix\prueba\iureocr-prueba.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          Add-AppxPackage -Path msix\prueba\iureocr-windows-x64-prueba.msix
+          $pkg = Get-AppxPackage | Where-Object { $_.Name -eq $identity } | Select-Object -First 1
+          Write-Output "Instalado: $($pkg.PackageFullName) en $($pkg.InstallLocation)"
+          $ok = $true
+          try {
+            & pwsh -NoProfile -File scripts\probar-msix.ps1 -Alias "$env:LOCALAPPDATA\Microsoft\WindowsApps\iureocr.exe" -Dir "$env:RUNNER_TEMP\iureocr-msix-prueba"
+            if ($LASTEXITCODE -ne 0) { $ok = $false }
+          } finally {
+            Remove-AppxPackage -Package $pkg.PackageFullName
+          }
+          if (-not $ok) { Write-Output "::error::La prueba de OCR dentro del paquete MSIX falló"; exit 1 }
+          Get-ChildItem msix\store, msix\prueba | Format-Table Name, Length
+
+      - name: Subir el MSIX para la Store
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-store
+          path: msix/store/*
+
+      - name: Subir el MSIX de prueba
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msix-prueba
+          path: msix/prueba/*
+
       # El actualizador instala el paquete del mismo tipo que la app (una instalación
       # .deb no acepta un AppImage), así que el .deb y el .rpm también llevan firma.
       - name: Firmar .deb y .rpm para el actualizador

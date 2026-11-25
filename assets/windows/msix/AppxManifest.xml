@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paquete MSIX de IureOCR para Microsoft Store. build.yml sustituye los @…@:
+    @IDENTITY_NAME@, @PUBLISHER@, @PUBLISHER_DISPLAY_NAME@: los de Partner Center
+      (Administración de productos → Identidad del producto), en las variables del repo
+      MSIX_IDENTITY_NAME, MSIX_PUBLISHER y MSIX_PUBLISHER_DISPLAY_NAME.
+    @VERSION@: la de tauri.conf.json con el primer número +1 y el cuarto en 0
+      (0.6.1 → 1.6.1.0): la Store no acepta un primer número 0 y exige el cuarto en 0.
+
+  El paquete lleva lo mismo que instala el NSIS: IureOCR.exe y resources\ (pdfium,
+  Tesseract de UB Mannheim y los modelos spa, eng y osd). La app encuentra Tesseract en
+  resources\tesseract junto al ejecutable, igual que instalada con el NSIS.
+
+  Sin unvirtualizedResources: los ajustes y registros que la app crea en AppData quedan
+  en la carpeta privada del paquete, que es lo que se espera de una app de la Store.
+  DisplayName debe ser exactamente el nombre reservado en Partner Center («IureOCR»).
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity
+    Name="@IDENTITY_NAME@"
+    Publisher="@PUBLISHER@"
+    Version="@VERSION@"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>IureOCR</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_DISPLAY_NAME@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <!-- La interfaz está en español y en inglés (según el idioma del sistema). -->
+  <Resources>
+    <Resource Language="es-MX" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="IureOCR" Executable="IureOCR.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="IureOCR"
+        Description="OCR local con Tesseract y herramientas PDF"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Enlaces iureocr://ocr?file=… (los abren las otras apps de Iurefficient). Fuera
+             de la Store la app registra el esquema al arrancar; empaquetada lo declara aquí. -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="iureocr">
+            <uap:DisplayName>IureOCR</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+        <!-- `iureocr.exe` en el PATH: es lo que Claude Desktop, VS Code y otros clientes
+             MCP lanzan (`iureocr.exe --mcp`). Un ejecutable dentro de WindowsApps no se
+             puede lanzar por su ruta, y además la ruta cambia con cada versión. -->
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="IureOCR.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="iureocr.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

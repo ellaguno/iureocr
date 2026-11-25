@@ -430,7 +430,8 @@ export async function init() {
   applyTheme();
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
   refreshIureSession();
-  if (settings.checkUpdates) {
+  // Desde Microsoft Store no se buscan versiones nuevas: las instala la Store.
+  if (settings.checkUpdates && !sys.store) {
     setTimeout(() => {
       import("./updater").then((m) => m.checkForUpdates(true)).catch(() => {});
     }, 6000);

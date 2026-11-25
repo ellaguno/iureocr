@@ -36,6 +36,8 @@ export interface SystemInfo {
   settingsPath: string;
   logPath: string | null;
   updateTarget: string;
+  /** Instalada desde Microsoft Store: la actualiza la Store (sin actualizador propio). */
+  store: boolean;
   supportedExtensions: string[];
 }
 

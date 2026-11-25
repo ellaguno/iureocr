@@ -263,9 +263,51 @@ versión nueva. El actualizador de Tauri la instala desde la propia app y antes 
 firma minisign. Cada instalación recibe su tipo de paquete: el `.exe` en Windows, el
 `.app.tar.gz` en macOS, el AppImage, o el `.deb`/`.rpm` (instalarlo pide la contraseña de
 administrador). Si la actualización no se puede instalar, la app muestra el error y un botón
-para abrir la página de descarga.
+para abrir la página de descarga. La versión de la Microsoft Store no busca versiones nuevas:
+la actualiza la Store.
 
 </details>
+
+### Microsoft Store (MSIX)
+
+El job de Windows de `build.yml` genera también dos artefactos, que no van a la release:
+
+- `msix-store`: `iureocr-windows-x64.msix`, sin firmar, para subir a Partner Center (la Store
+  lo firma).
+- `msix-prueba`: el mismo paquete firmado con un certificado de prueba y su `.cer`. Para
+  instalarlo a mano: importar el `.cer` en *Equipo local → Personas de confianza* y abrir el
+  `.msix`.
+
+El paquete lleva lo mismo que instala el NSIS: `IureOCR.exe` y `resources\` con pdfium, el
+Tesseract de UB Mannheim y los modelos `spa`, `eng` y `osd`, así que funciona sin instalar
+nada más. Antes de subir los artefactos, el workflow instala la copia firmada, lanza
+`iureocr.exe --mcp` por su alias y hace por MCP el OCR de una imagen generada
+(`scripts/probar-msix.ps1`); si Tesseract no está o no reconoce el texto, el job falla.
+
+La identidad sale de Partner Center (*Identidad del producto*) y va en tres variables del repo
+(*Settings → Secrets and variables → Actions → Variables*): `MSIX_IDENTITY_NAME`
+(`Package/Identity/Name`), `MSIX_PUBLISHER` (`Package/Identity/Publisher`, `CN=…`) y
+`MSIX_PUBLISHER_DISPLAY_NAME` (`Package/Properties/PublisherDisplayName`). Sin ellas el paquete
+lleva una identidad de prueba que Partner Center rechaza. El `DisplayName` del manifiesto
+(`assets/windows/msix/AppxManifest.xml`) es «IureOCR», el nombre reservado en la Store.
+
+El manifiesto declara `runFullTrust` (app de escritorio Win32, que además lanza Tesseract
+como proceso aparte) e `internetClient`, el esquema `iureocr://` y el alias `iureocr.exe`, que
+es lo que se registra en Claude Desktop y VS Code (un ejecutable dentro de `WindowsApps` no se
+puede lanzar por su ruta). No usa `unvirtualizedResources`: los ajustes y el registro quedan
+en la carpeta privada del paquete (`%LOCALAPPDATA%\Packages\<paquete>\LocalCache\Roaming\…`).
+
+Instalada desde la Store, la app no se actualiza sola ni avisa de versiones nuevas (no carga
+el actualizador de Tauri y oculta la opción en Ajustes): la actualiza la Store. Lo detecta
+con `GetCurrentPackageFullName` (`src-tauri/src/store.rs`); fuera de la Store todo sigue igual.
+
+La versión del paquete es la de la app con el primer número más 1 y un `.0` al final
+(`0.6.1` → `1.6.1.0`), porque la Store no acepta un primer número 0 y exige el cuarto en 0;
+es el mismo esquema que Iurefficient Apps e IureProject. Cada envío necesita una versión
+mayor que la anterior. Para generar el paquete sin publicar release: *Actions → Build → Run
+workflow* sobre la rama.
+
+La política de privacidad para la ficha de la Store está en [PRIVACY.md](PRIVACY.md).
 
 ### Dónde guarda las cosas
 
@@ -310,7 +352,7 @@ máquina. En concreto, IureOCR sólo se conecta a:
   para ver si hay una versión nueva (se puede desactivar en Ajustes), y al abrir Ajustes,
   para mostrar la última versión de las otras apps de Iurefficient.
 
-No recopila telemetría ni estadísticas de uso. Las credenciales se guardan en el llavero del
+No recopila telemetría ni estadísticas de uso. Detalle completo en [PRIVACY.md](PRIVACY.md). Las credenciales se guardan en el llavero del
 sistema operativo, nunca en archivos de configuración.
 
 ## Licencia
