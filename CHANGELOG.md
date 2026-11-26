@@ -5,6 +5,8 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.6.2] — 2026-11-26
+
 ### Añadido
 
 - **Paquete MSIX para Microsoft Store.** El job de Windows genera
@@ -18,6 +20,12 @@ versiones, [SemVer](https://semver.org/lang/es/).
   versiones nuevas (la actualiza la Store); en Ajustes se indica así. Registra
   el alias `iureocr.exe` en Claude Desktop y VS Code en lugar de la ruta del
   paquete.
+- `iurefficient-connect` 0.9.1 (antes 0.7.1), la misma que usa IureDesk.
+
+### Corregido
+
+- **Páginas de un PDF que ya tenía texto.** Al omitir el OCR, `ocr_file` (MCP)
+  respondía `pages: 0`; ahora informa el número real de páginas.
 
 ## [0.6.1] — 2026-10-21
 
