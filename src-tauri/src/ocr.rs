@@ -142,7 +142,7 @@ fn rasterize(
     force: bool,
     progress: Progress,
     cancel: &AtomicBool,
-) -> Result<(Vec<PathBuf>, usize)> {
+) -> Result<(Vec<PathBuf>, usize, usize)> {
     use pdfium_render::prelude::*;
 
     let doc = pdfium.load_pdf_from_file(input, None).map_err(|e| {
@@ -167,7 +167,7 @@ fn rasterize(
         }
     }
     if existing >= TEXT_LAYER_MIN_CHARS && !force {
-        return Ok((vec![], existing));
+        return Ok((vec![], existing, total));
     }
 
     let mut files = Vec::with_capacity(total);
@@ -206,7 +206,7 @@ fn rasterize(
         files.push(out);
         progress("render", i + 1, total);
     }
-    Ok((files, existing))
+    Ok((files, existing, total))
 }
 
 /// Ejecuta Tesseract sobre `inputs` (imágenes) y deja `<outbase>.pdf` y `<outbase>.txt`.
@@ -386,7 +386,7 @@ fn run_in(
     cancel: &AtomicBool,
 ) -> Result<Outcome> {
     let inputs: Vec<PathBuf> = if is_pdf(&req.input) {
-        let (files, existing) = rasterize(
+        let (files, existing, total) = rasterize(
             &req.input,
             work,
             req.dpi,
@@ -401,7 +401,7 @@ fn run_in(
                 skipped: true,
                 pdf_path: None,
                 txt_path: None,
-                pages: 0,
+                pages: total,
                 chars: existing,
                 elapsed_secs: 0.0,
                 note: Some(tr!(
@@ -600,5 +600,6 @@ mod tests {
             again.skipped,
             "el PDF con OCR debería detectarse como «ya tiene texto»"
         );
+        assert_eq!(again.pages, 2, "al omitirse también se informan las páginas");
     }
 }
