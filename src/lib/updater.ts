@@ -14,6 +14,11 @@ const RELEASES_URL = "https://github.com/ellaguno/iureocr/releases/latest";
  * recibe el .deb y no el AppImage.
  */
 export async function checkForUpdates(silent: boolean): Promise<void> {
+  // La versión de Microsoft Store la actualiza la Store (su política no permite otra vía).
+  if (app.sys?.store) {
+    if (!silent) await message(t("update.fromStore"), { title: "IureOCR", kind: "info" });
+    return;
+  }
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();

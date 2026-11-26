@@ -3,6 +3,7 @@ mod mcp;
 mod ocr;
 mod pdf;
 mod settings;
+pub mod store;
 mod tesseract;
 
 use iurefficient_connect::tr;
@@ -139,6 +140,8 @@ struct SystemInfo {
     settings_path: String,
     log_path: Option<String>,
     update_target: String,
+    /// Instalada desde Microsoft Store: la actualiza la Store, no la app.
+    store: bool,
     supported_extensions: &'static [&'static str],
 }
 
@@ -197,6 +200,7 @@ fn system_info(state: State<'_, AppState>) -> SystemInfo {
             },
             std::env::consts::ARCH
         ),
+        store: store::from_store(),
         supported_extensions: ocr::SUPPORTED_EXTENSIONS,
     }
 }
@@ -1110,6 +1114,11 @@ async fn copilot_revoke_token(state: State<'_, AppState>, id: String) -> Result<
 
 #[tauri::command]
 async fn check_update_notice() -> Result<Option<UpdateNotice>, String> {
+    // Desde la Store, las versiones nuevas llegan por la Store (su política no permite
+    // avisar ni descargar actualizaciones por otra vía).
+    if store::from_store() {
+        return Ok(None);
+    }
     let r = iurefficient_connect::releases::consultar(
         "ellaguno/iureocr",
         env!("CARGO_PKG_VERSION"),
@@ -1163,7 +1172,11 @@ pub fn mcp_client_config() -> serde_json::Value {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging("iureocr");
-    tauri::Builder::default()
+    let from_store = store::from_store();
+    if from_store {
+        log::info!("paquete de Microsoft Store: sin actualizador propio");
+    }
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -1182,11 +1195,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .setup(|app| {
+        .plugin(tauri_plugin_process::init());
+    // La versión de la Store la actualiza la Store: sin el plugin, la app no puede
+    // descargar ni instalar versiones por su cuenta.
+    if !from_store {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
+        .setup(move |app| {
+            // Empaquetada, el esquema lo declara el manifiesto MSIX (y el registro que
+            // escribiría aquí quedaría virtualizado dentro del paquete).
             #[cfg(any(windows, target_os = "linux"))]
-            {
+            if !from_store {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 if let Err(e) = app.deep_link().register_all() {
                     log::warn!("no se pudo registrar el esquema iureocr://: {e}");

@@ -5,6 +5,20 @@ versiones, [SemVer](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido
+
+- **Paquete MSIX para Microsoft Store.** El job de Windows genera
+  `iureocr-windows-x64.msix` (artefactos `msix-store` y `msix-prueba`) con
+  Tesseract y los modelos de español e inglés dentro, y lo prueba instalándolo y
+  haciendo OCR por MCP. Política de privacidad en `PRIVACY.md`.
+
+### Cambiado
+
+- Instalada desde Microsoft Store, la app no carga el actualizador ni avisa de
+  versiones nuevas (la actualiza la Store); en Ajustes se indica así. Registra
+  el alias `iureocr.exe` en Claude Desktop y VS Code en lugar de la ruta del
+  paquete.
+
 ## [0.6.1] — 2026-10-21
 
 ### Corregido
