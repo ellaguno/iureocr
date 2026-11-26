@@ -132,8 +132,24 @@ fn languages_of(exe: &Path, tessdata: Option<&Path>) -> Vec<String> {
         .collect()
 }
 
+/// Quita el prefijo de ruta extendida de Windows (`\\?\C:\…`, `\\?\UNC\…`). Tesseract no
+/// entiende `--tessdata-dir` con ese prefijo y no encuentra ningún idioma; la carpeta de
+/// recursos llega así, por ejemplo, en el paquete MSIX (bajo `C:\Program Files\WindowsApps`).
+fn without_verbatim_prefix(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
 /// Busca Tesseract y comprueba que responde.
 pub fn locate(resource_dir: Option<&Path>) -> Result<Tesseract> {
+    let resource_dir = resource_dir.map(without_verbatim_prefix);
+    let resource_dir = resource_dir.as_deref();
     let tessdata = bundled_tessdata(resource_dir);
     for (exe, bundled) in candidates(resource_dir) {
         if exe.components().count() > 1 && !exe.is_file() {
@@ -154,4 +170,25 @@ pub fn locate(resource_dir: Option<&Path>) -> Result<Tesseract> {
         "Tesseract was not found. On Linux: sudo apt install tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng. On macOS: brew install tesseract tesseract-lang. On Windows it comes with the installer.",
         "No se encontró Tesseract. En Linux: sudo apt install tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng. En macOS: brew install tesseract tesseract-lang. En Windows viene dentro del instalador."
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quita_el_prefijo_de_ruta_extendida() {
+        assert_eq!(
+            without_verbatim_prefix(Path::new(r"\\?\C:\Program Files\WindowsApps\x")),
+            PathBuf::from(r"C:\Program Files\WindowsApps\x")
+        );
+        assert_eq!(
+            without_verbatim_prefix(Path::new(r"\\?\UNC\srv\share\x")),
+            PathBuf::from(r"\\srv\share\x")
+        );
+        assert_eq!(
+            without_verbatim_prefix(Path::new("/usr/share/x")),
+            PathBuf::from("/usr/share/x")
+        );
+    }
 }
